@@ -16,7 +16,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const assetsBase = ""; // на Pages проставится через NEXT_PUBLIC_ASSETS_BASE из GitHub Actions
+  const assetsBase = "https://workerjs.vneboriba.workers.dev/"; // на Pages проставится через NEXT_PUBLIC_ASSETS_BASE из GitHub Actions
 
   const onFile = useCallback((f: File | null) => {
     if (!f) return;

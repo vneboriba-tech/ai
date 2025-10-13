@@ -1,4 +1,3 @@
-// app/layout.tsx
 export const metadata = {
   title: "почувствуй медиа",
   description: "Мини-сайт: Журналист / Блоггер / Фотограф",

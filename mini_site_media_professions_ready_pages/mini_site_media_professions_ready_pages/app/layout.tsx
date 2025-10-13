@@ -9,7 +9,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ru">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        {/* favicon можно добавить позже в /public/favicon.ico */}
       </head>
       <body>{children}</body>
     </html>

@@ -49,7 +49,7 @@ export default function App() {
 
       const stamped = await applyClientWatermark(
         `data:image/png;base64,${data.imageBase64}`,
-        `${assetsBase}/ЛОГО.png`
+        `${assetsBase}/logo.png`
       );
       const finalDataUrl = stamped || `data:image/png;base64,${data.imageBase64}`;
       setResult(finalDataUrl.replace(/^data:image\/png;base64,/, ""));
@@ -105,7 +105,7 @@ export default function App() {
           <img className="tiny-logo" src={`${assetsBase}/ЛОГО.png`} alt="Логотип" />
           <h1 className="brand-title title">почувствуй медиа</h1>
           {/* видео-логотип справа */}
-          <video className="video-logo" src={`${assetsBase}/Логовидео.webm`} autoPlay loop muted playsInline />
+          <video className="video-logo" src={`${assetsBase}/logo-video.webm`} autoPlay loop muted playsInline />
         </header>
 
         {/* Загрузка */}

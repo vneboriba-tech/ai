@@ -8,25 +8,18 @@
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#1d4ed8; --border:#e5e7eb; }
     * { box-sizing: border-box; }
-    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
-    .container { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; min-height:100%; }
+    body { display:flex; flex-direction:column; }
+    .container { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; width:100%; }
     header { display:flex; align-items:center; justify-content:center; position:relative; padding: 8px 0 24px; }
-    .tiny-logo { position:absolute; left:0; top:50%; transform: translateY(-50%); width:48px; height:48px; object-fit:contain; opacity:.95; display:none; }
     .title { font-size: clamp(28px, 4vw, 48px); font-weight:600; letter-spacing:-0.02em; margin:0; text-align:center; }
     .video-logo {
-      position: absolute;
-      right: 60px;
-      top: 0;
-      width: 80px;
-      height: auto;
-      border-radius: 10px;
-      opacity: 0.95;
-      display: block;
-      background-color: white; /* <<< белый фон под видео */
-      padding: 4px; /* чуть воздуха */
+      position: absolute; right: 60px; top: 0;
+      width: 80px; height: auto; border-radius: 10px; opacity: 0.95;
+      display: block; background:#ffffff; padding:4px; /* белый фон под видео */
     }
 
-    .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition: .2s ease; }
+    .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition:.2s ease; }
     .uploader:hover { border-color:#93c5fd; background:#f0f9ff; }
     .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.9; margin:0 auto 12px; display:block; }
     .uploader .headline { font-size: clamp(18px, 2.4vw, 22px); font-weight:600; }
@@ -50,7 +43,8 @@
     .result { margin-top:18px; text-align:center; }
     .result img { width:100%; max-width:860px; border-radius:18px; border:1px solid var(--border); }
 
-    footer { margin-top:24px; text-align:center; color:#111827; font-size:14px; }
+    footer { margin-top:auto; text-align:center; color:#111827; font-size:14px; padding:24px 0; border-top:1px solid #e5e7eb; background:#ffffff; }
+    footer .sub { font-size:13px; color:#6b7280; }
   </style>
 </head>
 <body>
@@ -59,14 +53,10 @@
       <h1 class="title" style="font-size: 3rem; font-weight: 800; color: #111827; margin-bottom: 10px;">
         почувствуй медиа
       </h1>
-
       <video 
         class="video-logo" 
         src="/logo-video.webm" 
-        autoplay 
-        loop 
-        muted 
-        playsinline 
+        autoplay loop muted playsinline
         onerror="this.style.display='none'">
       </video>
     </header>
@@ -98,18 +88,18 @@
       <div style="font-size:13px;color:#6b7280;margin-bottom:6px">Результат</div>
       <img id="resultImg" alt="Результат" />
     </div>
-
-    <footer>
-      <div>факультет журналистики МГУ</div>
-      <div>с любовью КМ</div>
-    </footer>
   </div>
+
+  <footer>
+    <div>факультет журналистики МГУ</div>
+    <div class="sub">© 2025 с любовью КМ™</div>
+  </footer>
 
   <!-- HEIC -> JPEG converter -->
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
     // === CONFIG ===
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой правильный адрес
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой адрес воркера
 
     // === State ===
     let pickedFile = null;
@@ -124,7 +114,7 @@
     const resultImg = document.getElementById("resultImg");
     const downloadLink = document.getElementById("downloadLink");
 
-    // Uploader logic...
+    // Uploader
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => e.preventDefault());
     dropzone.addEventListener("drop", (e) => {
@@ -145,6 +135,7 @@
       clearError();
     }
 
+    // Roles
     document.querySelectorAll(".role").forEach(btn => {
       btn.addEventListener("click", () => {
         if (!pickedFile) return;
@@ -168,6 +159,7 @@
       errBox.textContent = "";
     }
 
+    // HEIC conversion if needed
     async function ensureDisplayableImage(file) {
       const type = (file.type || "").toLowerCase();
       const name = (file.name || "").toLowerCase();
@@ -178,13 +170,20 @@
       return new File([outBlob], (file.name || "image") + ".jpg", { type: "image/jpeg" });
     }
 
+    // Watermark + slight random variety
     async function renderWithWatermark(base64, logoUrl) {
       const img = await loadImage("data:image/png;base64," + base64);
       const logo = await loadImage(logoUrl).catch(() => null);
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       canvas.width = img.width; canvas.height = img.height;
+
+      // лёгкая вариативность
+      ctx.filter = `hue-rotate(${(Date.now()%360)}deg) saturate(1.02)`;
       ctx.drawImage(img, 0, 0);
+      ctx.filter = "none";
+
+      // водяной знак
       if (logo) {
         const targetW = Math.round(canvas.width * 0.12);
         const ratio = (logo.width || 1) / (logo.height || 1);
@@ -208,18 +207,26 @@
       });
     }
 
+    // Generate
     genBtn.addEventListener("click", async () => {
       try {
         clearError();
+        if (!API_BASE || !API_BASE.startsWith("http")) throw new Error("API не настроено. Проверь переменную API_BASE.");
+
         const displayable = await ensureDisplayableImage(pickedFile);
         const fd = new FormData();
         fd.append("image", displayable);
         fd.append("role", pickedRole);
 
-        const resp = await fetch(API_BASE + "api/generate", { method: "POST", body: fd });
+        const resp = await fetch(API_BASE.replace(/\/+$/, '') + "/api/generate", { method: "POST", body: fd });
         if (!resp.ok) throw new Error(await resp.text());
+
         const data = await resp.json();
+        if (!data?.imageBase64) throw new Error("Пустой ответ API");
+
         const finalUrl = await renderWithWatermark(data.imageBase64, "/logo.png");
+        const a = document.createElement("a");
+        a.href = finalUrl; a.download = `image-${pickedRole}.png`;
         resultImg.src = finalUrl;
         resultBox.style.display = "block";
         downloadLink.href = finalUrl;

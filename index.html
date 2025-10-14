@@ -8,27 +8,29 @@
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#1d4ed8; --border:#e5e7eb; }
     * { box-sizing: border-box; }
-    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; min-height:100%; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; min-height:100%; }
     body { display:flex; flex-direction:column; }
     .container { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; width:100%; }
     header { display:flex; align-items:center; justify-content:center; position:relative; padding: 8px 0 24px; }
     .title { font-size: clamp(28px, 4vw, 48px); font-weight:600; letter-spacing:-0.02em; margin:0; text-align:center; }
 
-    /* Рамка-подложка с белым фоном под видео-логотип */
+    /* Белая рамка-подложка под логотип */
     .video-logo-frame {
       position: absolute; right: 60px; top: 0;
       display: block;
-      background:#ffffff;               /* белый фон */
+      background:#ffffff;
       border:1px solid var(--border);
       border-radius: 12px;
-      padding: 6px;                     /* белое поле вокруг видео */
+      padding: 6px;
       box-shadow: 0 6px 18px rgba(0,0,0,.06);
     }
+    /* Размер области логотипа (и для video, и для canvas) */
     .video-logo {
       display:block;
-      width: 80px; height: auto;
+      width: 80px; height: 80px;
       border-radius: 8px;
-      background:#ffffff;               /* дублируем белый фон внутри */
+      background:#ffffff; /* дублируем белый */
       object-fit: contain;
       opacity: 0.95;
     }
@@ -65,12 +67,14 @@
   <div class="container">
     <header style="position: relative; text-align: center; margin-top: 40px;">
       <h1 class="title" style="font-size: 3rem; font-weight: 800; color: #111827; margin-bottom: 10px;">
-        почувствуй медиа
+        Почувствуй себя журналистом
       </h1>
 
-      <!-- Белая рамка-подложка для видео-логотипа -->
+      <!-- Белая рамка-подложка для логотипа -->
       <span class="video-logo-frame">
+        <!-- Спрятанное видео-источник -->
         <video
+          id="videoSource"
           class="video-logo"
           src="/logo-video.webm"
           autoplay
@@ -80,8 +84,12 @@
           webkit-playsinline
           preload="auto"
           poster="/logo-video-poster.png"
+          style="display:none;background:#ffffff"
           onerror="this.style.display='none'">
         </video>
+
+        <!-- Видимый канвас с белой подложкой -->
+        <canvas id="videoCanvas" class="video-logo"></canvas>
       </span>
     </header>
 
@@ -124,6 +132,53 @@
   <script>
     // === CONFIG ===
     const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой адрес воркера
+
+    // === Video logo → Canvas (белый фон гарантирован) ===
+    (function initVideoCanvas() {
+      const video = document.getElementById('videoSource');
+      const canvas = document.getElementById('videoCanvas');
+      const ctx = canvas.getContext('2d');
+
+      function fitContain(srcW, srcH, dstW, dstH) {
+        const s = Math.min(dstW / srcW, dstH / srcH);
+        const w = Math.round(srcW * s);
+        const h = Math.round(srcH * s);
+        const x = Math.round((dstW - w) / 2);
+        const y = Math.round((dstH - h) / 2);
+        return {x,y,w,h};
+      }
+
+      function draw() {
+        if (!video.videoWidth || !video.videoHeight) {
+          requestAnimationFrame(draw);
+          return;
+        }
+        // задаём размер канваса под CSS-рамку 80x80 (см. .video-logo)
+        const W = canvas.clientWidth || 80;
+        const H = canvas.clientHeight || 80;
+        if (canvas.width !== W) canvas.width = W;
+        if (canvas.height !== H) canvas.height = H;
+
+        // белая подложка
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, W, H);
+
+        // рисуем видео "contain" со сглаживанием
+        const {x,y,w,h} = fitContain(video.videoWidth, video.videoHeight, W, H);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        try { ctx.drawImage(video, x, y, w, h); } catch (e) {}
+        ctx.restore();
+
+        requestAnimationFrame(draw);
+      }
+
+      // запускаем, когда видео готово
+      video.addEventListener('loadeddata', () => requestAnimationFrame(draw));
+      // на всякий случай — если сразу можно рисовать
+      if (video.readyState >= 2) requestAnimationFrame(draw);
+    })();
 
     // === State ===
     let pickedFile = null;

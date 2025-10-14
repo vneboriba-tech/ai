@@ -13,10 +13,24 @@
     .container { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; width:100%; }
     header { display:flex; align-items:center; justify-content:center; position:relative; padding: 8px 0 24px; }
     .title { font-size: clamp(28px, 4vw, 48px); font-weight:600; letter-spacing:-0.02em; margin:0; text-align:center; }
-    .video-logo {
+
+    /* Рамка-подложка с белым фоном под видео-логотип */
+    .video-logo-frame {
       position: absolute; right: 60px; top: 0;
-      width: 80px; height: auto; border-radius: 10px; opacity: 0.95;
-      display: block; background:#ffffff; padding:4px; /* белый фон под видео */
+      display: block;
+      background:#ffffff;               /* белый фон */
+      border:1px solid var(--border);
+      border-radius: 12px;
+      padding: 6px;                     /* белое поле вокруг видео */
+      box-shadow: 0 6px 18px rgba(0,0,0,.06);
+    }
+    .video-logo {
+      display:block;
+      width: 80px; height: auto;
+      border-radius: 8px;
+      background:#ffffff;               /* дублируем белый фон внутри */
+      object-fit: contain;
+      opacity: 0.95;
     }
 
     .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition:.2s ease; }
@@ -53,12 +67,22 @@
       <h1 class="title" style="font-size: 3rem; font-weight: 800; color: #111827; margin-bottom: 10px;">
         почувствуй медиа
       </h1>
-      <video 
-        class="video-logo" 
-        src="/logo-video.webm" 
-        autoplay loop muted playsinline
-        onerror="this.style.display='none'">
-      </video>
+
+      <!-- Белая рамка-подложка для видео-логотипа -->
+      <span class="video-logo-frame">
+        <video
+          class="video-logo"
+          src="/logo-video.webm"
+          autoplay
+          muted
+          loop
+          playsinline
+          webkit-playsinline
+          preload="auto"
+          poster="/logo-video-poster.png"
+          onerror="this.style.display='none'">
+        </video>
+      </span>
     </header>
 
     <div class="uploader" id="dropzone">

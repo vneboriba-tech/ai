@@ -33,6 +33,10 @@
     .role.active { border-color:#3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.2); }
     .role:disabled { opacity:.55; cursor:not-allowed; }
 
+    .gender { margin-top:16px; text-align:center; color:#111827; }
+    .gender label { margin: 0 8px; cursor: pointer; }
+    .gender input { vertical-align: -2px; }
+
     .actions { margin-top:18px; display:flex; flex-direction:column; align-items:center; gap:10px; }
     .btn { appearance:none; border:0; border-radius:14px; padding:12px 18px; background:var(--brand); color:#fff; font-weight:600; cursor:pointer; }
     .btn:disabled { opacity:.55; cursor:not-allowed; }
@@ -74,6 +78,14 @@
       </div>
     </section>
 
+    <!-- Жёсткий фильтр пола -->
+    <div class="gender" id="genderBox">
+      <strong>Пол:</strong>
+      <label><input type="radio" name="gender" value="auto" checked> Авто</label>
+      <label><input type="radio" name="gender" value="male"> Мужчина</label>
+      <label><input type="radio" name="gender" value="female"> Женщина</label>
+    </div>
+
     <div class="actions">
       <button id="genBtn" class="btn" disabled>Сгенерировать образ</button>
       <div id="loading" class="loading" style="display:none">
@@ -100,7 +112,7 @@
   <script>
     // ====== CONFIG ======
     const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой Worker URL
-    const LOGO_URL = "./logo.png";
+    const LOGO_URL = "./logo.png"; // кладём рядом с index.html
 
     // ====== State ======
     let pickedFile = null;
@@ -141,7 +153,15 @@
     }
 
     // helpers
-    function loadImage(src){ return new Promise((resolve,reject)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>resolve(i); i.onerror=reject; i.src=src; }); }
+    function loadImage(src){
+      return new Promise((resolve,reject)=>{
+        const i=new Image();
+        i.crossOrigin="anonymous"; // локальный файл — ок
+        i.onload=()=>resolve(i);
+        i.onerror=()=>reject(new Error("Не удалось загрузить изображение: "+src));
+        i.src=src + (src.includes("?") ? "" : "?v=" + Date.now()); // bust cache для GH Pages
+      });
+    }
 
     // общий expandBox (для маски и для склейки)
     function expandBox(box, scale){
@@ -217,7 +237,7 @@
 
       // === ЛОГОТИП СПРАВА СНИЗУ ===
       try {
-        const logo = await loadImage(LOGO_URL);
+        const logo = await loadImage(LOGO_URL); // logo.png рядом с index.html
         const margin = Math.round(Math.min(W,H)*0.02);
         const targetW = Math.round(W * 0.14); // ~14% ширины кадра
         const ratio = (logo.width||1)/(logo.height||1);
@@ -234,7 +254,9 @@
         // логотип
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
-      } catch(_) {}
+      } catch(e) {
+        console.warn("Логотип не добавлен:", e.message || e);
+      }
 
       return canvas.toDataURL("image/png");
     }
@@ -251,15 +273,22 @@
         const displayable = await ensureDisplayableImage(pickedFile);
         const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(displayable); });
 
-        // 1) пол
-        let gender = "unknown";
-        try {
-          const fdG=new FormData(); fdG.append("image_b64", srcB64);
-          const rG=await fetch(API_BASE.replace(/\/+$/,'') + "/api/gender", { method:"POST", body:fdG });
-          const jG=await rG.json(); gender = jG?.gender || "unknown";
-        } catch(_){}
+        // жёсткий выбор пола из UI
+        const genderChoice = (document.querySelector('input[name="gender"]:checked')?.value || "auto");
+        let genderToSend = "unknown";
+        if (genderChoice === "male") genderToSend = "male";
+        if (genderChoice === "female") genderToSend = "female";
 
-        // 2) bbox
+        // если авто — спросим сервер (majority vote), иначе шлём выбранный
+        if (genderChoice === "auto") {
+          try {
+            const fdG=new FormData(); fdG.append("image_b64", srcB64);
+            const rG=await fetch(API_BASE.replace(/\/+$/,'') + "/api/gender", { method:"POST", body:fdG });
+            const jG=await rG.json(); genderToSend = jG?.gender || "unknown";
+          } catch(_) {}
+        }
+
+        // bbox
         let bbox = null;
         try {
           const fdD=new FormData(); fdD.append("image_b64", srcB64);
@@ -267,12 +296,13 @@
           const jD=await rD.json(); bbox = jD?.face?.box || null;
         } catch(_){}
 
-        // 3) маска (если есть bbox)
+        // маска (если есть bbox)
         const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
 
-        // 4) генерация (отправляем mask_b64)
+        // генерация (отправляем и роль, и пол — для «жёсткости»)
         const fd = new FormData();
         fd.append("role", pickedRole);
+        fd.append("gender", genderToSend);
         fd.append("image_b64", srcB64);
         if (maskB64) fd.append("mask_b64", maskB64);
         fd.append("want_w","auto"); fd.append("want_h","auto");
@@ -283,7 +313,7 @@
         const data = raw ? JSON.parse(raw) : null;
         if (!data?.imageBase64) throw new Error("Пустой ответ API");
 
-        // 5) склейка головы + логотип
+        // склейка головы + логотип
         const finalUrl = await composeFaceAndLogo(data.imageBase64, srcB64, bbox);
 
         resultImg.src = finalUrl;

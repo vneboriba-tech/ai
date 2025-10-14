@@ -16,6 +16,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  // адрес API (Cloudflare Worker)
   const apiBase = (process?.env?.NEXT_PUBLIC_API_BASE as string) || "";
 
   const onFile = useCallback((f: File | null) => {
@@ -30,7 +31,10 @@ export default function App() {
     if (!role) { setError("Выберите героя: журналист / блоггер / фотограф"); return; }
     if (!apiBase) { setError("API не настроено (NEXT_PUBLIC_API_BASE)."); return; }
 
-    setError(null); setResult(null); setLoading(true);
+    setError(null);
+    setResult(null);
+    setLoading(true);
+
     try {
       const fd = new FormData();
       fd.append("image", file);
@@ -40,22 +44,23 @@ export default function App() {
       if (!res.ok) {
         const text = await res.text();
         if (text.includes("UnsupportedHttpVerb") || text.includes("<Error>")) {
-          throw new Error("Хостинг не принимает POST. Проверьте URL API в NEXT_PUBLIC_API_BASE.");
+          throw new Error("Хостинг API не принимает POST. Проверьте URL в NEXT_PUBLIC_API_BASE.");
         }
         throw new Error(text || "Ошибка ответа API");
       }
       const data = await res.json();
-
       const stamped = await applyClientWatermark(
         `data:image/png;base64,${data.imageBase64}`,
-        `${assetsBase}/logo.png`
+        `/logo.png`
       );
       const finalDataUrl = stamped || `data:image/png;base64,${data.imageBase64}`;
       setResult(finalDataUrl.replace(/^data:image\/png;base64,/, ""));
       try { window.open(finalDataUrl, "_blank"); } catch {}
     } catch (e: any) {
       setError(e?.message || "Ошибка генерации");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -86,6 +91,7 @@ export default function App() {
         .role { border:1px solid var(--border); border-radius:16px; padding:18px; background:white; cursor:pointer; transition:.15s; }
         .role:hover { box-shadow: 0 6px 18px rgba(0,0,0,.06); }
         .role.active { border-color:#3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.2); }
+        .role:disabled { opacity:.55; cursor:not-allowed; }
 
         .actions { margin-top:18px; display:flex; flex-direction:column; align-items:center; gap:12px; }
         .btn { appearance:none; border:0; border-radius:14px; padding:12px 18px; background:#2563eb; color:#fff; font-weight:600; cursor:pointer; }
@@ -100,23 +106,18 @@ export default function App() {
 
       <div className="container">
         <header>
-          {/* маленький логотип слева */}
-          <img className="tiny-logo" src={`${assetsBase}/logo.png`} alt="Логотип" />
-          <video className="video-logo" src="/logo-video.webm" … />
-          <img className="logo" src="/logo.png" … />
+          <img className="tiny-logo" src="/logo.png" alt="Логотип" />
           <h1 className="brand-title title">почувствуй медиа</h1>
-          {/* видео-логотип справа */}
-          <video className="video-logo" src={`${assetsBase}/logo-video.webm`} autoPlay loop muted playsInline />
+          <video className="video-logo" src="/logo-video.webm" autoPlay loop muted playsInline />
         </header>
 
-        {/* Загрузка */}
         <div
           className="uploader"
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; onFile(f || null); }}
         >
-          <img className="logo" src={`${assetsBase}/ЛОГО.png`} alt="Логотип" />
+          <img className="logo" src="/logo.png" alt="Логотип" />
           <div className="headline">Загрузите фотографию</div>
           <div className="sub">Ваша фотография · поддерживаются JPG, PNG, WEBP, HEIC</div>
           {file && <div className="picked">Вы выбрали: <b>{file.name}</b></div>}
@@ -124,13 +125,11 @@ export default function App() {
             ref={inputRef}
             type="file"
             accept="image/png,image/jpeg,image/webp,image/heic,image/heif"
-            className="hiddenInput"
             style={{ display: "none" }}
             onChange={(e) => onFile(e.target.files?.[0] || null)}
           />
         </div>
 
-        {/* Выбор героя */}
         <section className="roles">
           <div className="roles-title">Выберите героя 👉</div>
           <div className="roles-grid">
@@ -148,7 +147,6 @@ export default function App() {
           </div>
         </section>
 
-        {/* Кнопки */}
         <div className="actions">
           <button className="btn" onClick={handleGenerate} disabled={loading || !file || !role}>
             {loading ? "Генерация…" : "Сгенерировать образ"}
@@ -163,7 +161,6 @@ export default function App() {
           {error && <div style={{ fontSize: 14, color: "#dc2626" }}>{error}</div>}
         </div>
 
-        {/* Результат */}
         {result && (
           <div className="result">
             <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 6 }}>Результат</div>
@@ -171,7 +168,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Подвал */}
         <footer>
           <div>факультет журналистики МГУ</div>
           <div>с любовью КМ</div>
@@ -181,6 +177,7 @@ export default function App() {
   );
 }
 
+// === helpers ===
 async function applyClientWatermark(srcDataUrl: string, logoUrl: string): Promise<string | null> {
   try {
     const [img, logo] = await Promise.all([loadImage(srcDataUrl), loadImage(logoUrl)]);
@@ -188,7 +185,6 @@ async function applyClientWatermark(srcDataUrl: string, logoUrl: string): Promis
     const ctx = canvas.getContext("2d")!;
     canvas.width = img.width; canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
-
     const targetW = Math.round(canvas.width * 0.12);
     const ratio = (logo.width || 1) / (logo.height || 1);
     const targetH = Math.round(targetW / ratio);
@@ -198,7 +194,9 @@ async function applyClientWatermark(srcDataUrl: string, logoUrl: string): Promis
     ctx.drawImage(logo, x, y, targetW, targetH);
     ctx.globalAlpha = 1;
     return canvas.toDataURL("image/png");
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {

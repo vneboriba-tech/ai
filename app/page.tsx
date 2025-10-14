@@ -60,100 +60,120 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-gray-900 p-6 md:p-10">
+    <div className="page">
       <style>{`
-        @font-face { font-family: 'Avenir Next'; src: local('Avenir Next'), local('AvenirNext-DemiBold'); font-weight: 600; font-style: normal; }
+        :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#1d4ed8; --border:#e5e7eb; }
+        * { box-sizing: border-box; }
+        body { margin:0; background:var(--bg); color:var(--fg); }
         .brand-title { font-family: 'Avenir Next', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        .container { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; }
+        header { display:flex; align-items:center; justify-content:center; position:relative; padding: 8px 0 24px; }
+        .tiny-logo { position:absolute; left:0; top:50%; transform: translateY(-50%); width:48px; height:48px; object-fit:contain; opacity:.95; }
+        .title { font-size: clamp(28px, 4vw, 48px); font-weight:600; letter-spacing:-0.02em; margin:0; text-align:center; }
+        .video-logo { position:absolute; right:0; top:50%; transform: translateY(-50%); width:96px; height:96px; object-fit:contain; display:none; }
+        @media (min-width: 900px) { .video-logo { display:block; } }
+
+        .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition: .2s ease; }
+        .uploader:hover { border-color:#93c5fd; background:#f0f9ff; }
+        .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.9; margin:0 auto 12px; display:block; }
+        .uploader .headline { font-size: clamp(18px, 2.4vw, 22px); font-weight:600; }
+        .uploader .sub { font-size:14px; color: var(--muted); margin-top:6px; }
+        .uploader .picked { margin-top:8px; font-size:12px; color:#6b7280; }
+
+        .roles { margin-top:22px; }
+        .roles-title { text-align:center; font-weight:800; font-size:18px; }
+        .roles-grid { display:grid; grid-template-columns: 1fr; gap:12px; margin-top:10px; }
+        @media (min-width: 820px) { .roles-grid { grid-template-columns: repeat(3, 1fr); } }
+        .role { border:1px solid var(--border); border-radius:16px; padding:18px; background:white; cursor:pointer; transition:.15s; }
+        .role:hover { box-shadow: 0 6px 18px rgba(0,0,0,.06); }
+        .role.active { border-color:#3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.2); }
+
+        .actions { margin-top:18px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+        .btn { appearance:none; border:0; border-radius:14px; padding:12px 18px; background:#2563eb; color:#fff; font-weight:600; cursor:pointer; }
+        .btn:disabled { opacity:.55; cursor:not-allowed; }
+        .link { display:inline-block; border:1px solid var(--border); border-radius:14px; padding:10px 16px; text-decoration:none; color:inherit; }
+
+        .result { margin-top:18px; text-align:center; }
+        .result img { width:100%; max-width:860px; border-radius:18px; border:1px solid var(--border); }
+
+        footer { margin-top:24px; text-align:center; color:#111827; font-size:14px; }
       `}</style>
 
-      <div className="max-w-5xl mx-auto space-y-8 text-center">
-        {/* Заголовок по центру + webm-лого справа */}
-        <header className="relative flex items-center justify-center">
-          <h1 className="brand-title text-3xl md:text-5xl font-semibold tracking-tight">почувствуй медиа</h1>
-          <div className="absolute right-0 top-1/2 -translate-y-1/2 hidden md:block">
-            <video
-              src={`${assetsBase}/Логовидео.webm`}
-              autoPlay loop muted playsInline
-              className="w-24 h-24 object-contain"
-            />
-          </div>
+      <div className="container">
+        <header>
+          {/* маленький логотип слева */}
+          <img className="tiny-logo" src={`${assetsBase}/ЛОГО.png`} alt="Логотип" />
+          <h1 className="brand-title title">почувствуй медиа</h1>
+          {/* видео-логотип справа */}
+          <video className="video-logo" src={`${assetsBase}/Логовидео.webm`} autoPlay loop muted playsInline />
         </header>
 
-        {/* Зона загрузки с логотипом вместо иконки */}
+        {/* Загрузка */}
         <div
+          className="uploader"
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; onFile(f || null); }}
-          className="cursor-pointer rounded-3xl border-2 border-dashed border-gray-300 p-10 md:p-16 bg-gray-50 text-center hover:border-blue-500 hover:bg-blue-50 transition"
         >
-          <div className="flex flex-col items-center gap-4">
-            <img src={`${assetsBase}/ЛОГО.png`} alt="Логотип" className="w-16 h-16 object-contain opacity-90" />
-            <div className="text-xl md:text-2xl font-medium">Загрузите фотографию</div>
-            <div className="text-sm text-gray-600">Ваша фотография · поддерживаются JPG, PNG, WEBP, HEIC</div>
-            {file && <div className="text-xs text-gray-500">Вы выбрали: <b>{file.name}</b></div>}
-          </div>
+          <img className="logo" src={`${assetsBase}/ЛОГО.png`} alt="Логотип" />
+          <div className="headline">Загрузите фотографию</div>
+          <div className="sub">Ваша фотография · поддерживаются JPG, PNG, WEBP, HEIC</div>
+          {file && <div className="picked">Вы выбрали: <b>{file.name}</b></div>}
           <input
             ref={inputRef}
             type="file"
             accept="image/png,image/jpeg,image/webp,image/heic,image/heif"
-            className="hidden"
+            className="hiddenInput"
+            style={{ display: "none" }}
             onChange={(e) => onFile(e.target.files?.[0] || null)}
           />
         </div>
 
-        {/* Шаг 2: выбор героя — жирным по центру */}
-        <div className="space-y-3">
-          <div className="font-bold text-lg text-center">Выберите героя 👉</div>
-          <div className="grid md:grid-cols-3 gap-4 justify-center">
+        {/* Выбор героя */}
+        <section className="roles">
+          <div className="roles-title">Выберите героя 👉</div>
+          <div className="roles-grid">
             {ROLES.map((r) => (
               <motion.button
                 key={r.id}
                 whileHover={{ scale: file ? 1.02 : 1 }}
                 onClick={() => file && setRole(r.id)}
-                className={`rounded-2xl border p-5 text-center shadow-sm transition ${
-                  role === r.id ? "border-blue-500 ring-2 ring-blue-200" : "border-gray-200"
-                } ${!file ? "opacity-50 cursor-not-allowed" : "hover:shadow-md"}`}
+                className={`role ${role === r.id ? "active" : ""}`}
+                disabled={!file}
               >
-                <div className="text-lg font-medium">{r.title}</div>
+                <div style={{ fontSize: 16, fontWeight: 600 }}>{r.title}</div>
               </motion.button>
             ))}
           </div>
-        </div>
+        </section>
 
-        {/* Кнопка генерации */}
-        <div className="flex flex-col items-center gap-3">
-          <button
-            onClick={handleGenerate}
-            disabled={loading || !file || !role}
-            className="px-6 py-3 rounded-2xl bg-blue-600 text-white disabled:opacity-50"
-          >
+        {/* Кнопки */}
+        <div className="actions">
+          <button className="btn" onClick={handleGenerate} disabled={loading || !file || !role}>
             {loading ? "Генерация…" : "Сгенерировать образ"}
           </button>
 
           {result && (
-            <a download={`image-${role}.png`} href={`data:image/png;base64,${result}`}
-               className="px-5 py-3 rounded-2xl border">Скачать PNG</a>
+            <a className="link" download={`image-${role}.png`} href={`data:image/png;base64,${result}`}>
+              Скачать PNG
+            </a>
           )}
 
-          {error && <div className="text-sm text-red-600">{error}</div>}
+          {error && <div style={{ fontSize: 14, color: "#dc2626" }}>{error}</div>}
         </div>
 
         {/* Результат */}
         {result && (
-          <div className="space-y-3">
-            <div className="text-sm text-gray-600">Результат</div>
-            <img
-              src={`data:image/png;base64,${result}`}
-              alt="Результат"
-              className="w-full max-w-3xl rounded-2xl border mx-auto"
-            />
+          <div className="result">
+            <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 6 }}>Результат</div>
+            <img src={`data:image/png;base64,${result}`} alt="Результат" />
           </div>
         )}
 
-        {/* Подвал строго по центру */}
-        <footer className="text-xs text-gray-500 space-y-1 text-center">
-          <div className="text-sm text-gray-800">факультет журналистики МГУ</div>
-          <div className="text-sm text-gray-800">с любовью КМ</div>
+        {/* Подвал */}
+        <footer>
+          <div>факультет журналистики МГУ</div>
+          <div>с любовью КМ</div>
         </footer>
       </div>
     </div>

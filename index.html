@@ -33,10 +33,6 @@
     .role.active { border-color:#3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.2); }
     .role:disabled { opacity:.55; cursor:not-allowed; }
 
-    .gender { margin-top:16px; text-align:center; color:#111827; }
-    .gender label { margin: 0 8px; cursor: pointer; }
-    .gender input { vertical-align: -2px; }
-
     .actions { margin-top:18px; display:flex; flex-direction:column; align-items:center; gap:10px; }
     .btn { appearance:none; border:0; border-radius:14px; padding:12px 18px; background:var(--brand); color:#fff; font-weight:600; cursor:pointer; }
     .btn:disabled { opacity:.55; cursor:not-allowed; }
@@ -77,14 +73,6 @@
         <button class="role" data-role="фотограф"><div style="font-size:16px;font-weight:600">Фотограф</div></button>
       </div>
     </section>
-
-    <!-- Жёсткий фильтр пола -->
-    <div class="gender" id="genderBox">
-      <strong>Пол:</strong>
-      <label><input type="radio" name="gender" value="auto" checked> Авто</label>
-      <label><input type="radio" name="gender" value="male"> Мужчина</label>
-      <label><input type="radio" name="gender" value="female"> Женщина</label>
-    </div>
 
     <div class="actions">
       <button id="genBtn" class="btn" disabled>Сгенерировать образ</button>
@@ -168,7 +156,6 @@
       });
     }
 
-    // общий expandBox (для маски и для склейки)
     function expandBox(box, scale){
       const cx = box.x + box.w/2, cy = box.y + box.h/2;
       const nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.2);
@@ -178,30 +165,25 @@
       return { x: nx, y: ny, w: nw, h: nh };
     }
 
-    // === (1) ПОСТРОЕНИЕ INPAINT-МАСКИ (лицо «заморожено») ===
+    // Inpaint-mask: ЧЕРНОЕ = НЕ редактировать (голова), БЕЛОЕ = редактировать
     async function buildHeadMaskB64(srcB64, bbox){
       const img = await loadImage("data:image/png;base64,"+srcB64);
       const W=img.width, H=img.height;
       const c=document.createElement("canvas"); c.width=W; c.height=H;
       const ctx=c.getContext("2d");
-      ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H); // белый — редактируем
-
-      if (bbox){
+      ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
+      if (bbox) {
         const big = expandBox(bbox, 1.95);
         const x=Math.round(big.x*W), y=Math.round(big.y*H);
         const w=Math.round(big.w*W), h=Math.round(big.h*H);
         ctx.save();
-        ctx.beginPath();
-        ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, 2*Math.PI);
-        ctx.clip();
-        ctx.fillStyle="#000000";              // чёрный — НЕ редактируем (голова)
-        ctx.fillRect(x,y,w,h);
-        ctx.restore();
+        ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, 2*Math.PI); ctx.clip();
+        ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h); ctx.restore();
       }
       return c.toDataURL("image/png").split(",")[1] || "";
     }
 
-    // Склейка головы + ВОДЯНОЙ ЗНАК (ЛОГО) в правом нижнем углу
+    // Логотип в правом нижнем углу
     async function composeLogoOnly(base64Gen){
       const genImg = await loadImage("data:image/png;base64,"+base64Gen);
       const W=genImg.width, H=genImg.height;
@@ -209,7 +191,6 @@
       const ctx=canvas.getContext("2d");
       ctx.drawImage(genImg, 0, 0, W, H);
 
-      // логотип
       try {
         const logo = await loadImage(LOGO_URL);
         const margin = Math.round(Math.min(W,H)*0.02);
@@ -228,6 +209,7 @@
       return canvas.toDataURL("image/png");
     }
 
+    // Копия лица поверх + логотип
     async function composeFaceAndLogo(base64Gen, base64Src, bbox){
       const genImg = await loadImage("data:image/png;base64,"+base64Gen);
       const srcImg = await loadImage("data:image/png;base64,"+base64Src);
@@ -248,7 +230,6 @@
         const dw=Math.round(big.w*W);
         const dh=Math.round(big.h*H);
 
-        // перьевая маска
         const mask=document.createElement("canvas"); mask.width=dw; mask.height=dh;
         const mctx=mask.getContext("2d");
         const r=Math.min(dw,dh);
@@ -266,7 +247,6 @@
         ctx.restore();
       }
 
-      // ЛОГОТИП
       try {
         const logo = await loadImage(LOGO_URL);
         const margin = Math.round(Math.min(W,H)*0.02);
@@ -296,22 +276,17 @@
         genBtn.disabled = true;
 
         const maybeDisplayable = await ensureDisplayableImageOrNull(pickedFile);
-        const genderChoice = (document.querySelector('input[name="gender"]:checked')?.value || "auto");
-        let genderToSend = "unknown";
-        if (genderChoice === "male") genderToSend = "male";
-        if (genderChoice === "female") genderToSend = "female";
 
         // === ВЕТКА A: есть displayable (JPG/PNG/WebP/успешный HEIC) — полный пайплайн с маской
         if (maybeDisplayable) {
           const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(maybeDisplayable); });
 
-          // авто-гендер при "Авто"
-          if (genderChoice === "auto") {
-            try { const fdG=new FormData(); fdG.append("image_b64", srcB64);
-              const rG=await fetch(API_BASE.replace(/\/+$/,'') + "/api/gender", { method:"POST", body:fdG });
-              const jG=await rG.json(); genderToSend = jG?.gender || "unknown";
-            } catch(_) {}
-          }
+          // авто-детект пола
+          let genderToSend = "unknown";
+          try { const fdG=new FormData(); fdG.append("image_b64", srcB64);
+            const rG=await fetch(API_BASE.replace(/\/+$/,'') + "/api/gender", { method:"POST", body:fdG });
+            const jG=await rG.json(); genderToSend = jG?.gender || "unknown";
+          } catch(_) {}
 
           // bbox
           let bbox = null;
@@ -347,8 +322,7 @@
           // === ВЕТКА B: HEIC не декодируется в браузере — отправляем сырой файл, без маски
           const fd = new FormData();
           fd.append("role", document.querySelector('.role.active')?.dataset.role || pickedRole);
-          fd.append("gender", genderToSend); // при "Авто" сервер сам определит, у тебя majority vote
-          fd.append("image", pickedFile);    // отправляем исходный HEIC/HEIF
+          fd.append("image", pickedFile); // исходный HEIC/HEIF (сервер сам обработает)
 
           const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
           const raw = await resp.text();

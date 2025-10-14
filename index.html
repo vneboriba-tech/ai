@@ -58,7 +58,7 @@
     </header>
 
     <div class="uploader" id="dropzone">
-      <img class="logo" src="./Logo.png" alt="Логотип" onerror="this.style.display='none'">
+      <img class="logo" src="./logo.png" alt="Логотип" onerror="this.style.display='none'">
       <div class="headline">Загрузите фотографию</div>
       <div class="sub">Поддерживаются JPG, PNG, WEBP, HEIC</div>
       <div class="picked" id="pickedName"></div>
@@ -100,7 +100,7 @@
   <script>
     // ====== CONFIG ======
     const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой Worker URL
-    const LOGO_URLS = ["./Logo.png", "./logo.png"]; // пробуем оба кейса
+    const LOGO_URL = "./logo.png";
 
     // ====== State ======
     let pickedFile = null;
@@ -142,9 +142,8 @@
 
     // helpers
     function loadImage(src){ return new Promise((resolve,reject)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>resolve(i); i.onerror=reject; i.src=src; }); }
-    function findLogoUrl(){ return LOGO_URLS[0]; } // при желании можно проверить по fetch()
 
-    // общий expandBox (нужен и для маски, и для склейки)
+    // общий expandBox (для маски и для склейки)
     function expandBox(box, scale){
       const cx = box.x + box.w/2, cy = box.y + box.h/2;
       const nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.2);
@@ -154,8 +153,7 @@
       return { x: nx, y: ny, w: nw, h: nh };
     }
 
-    // === (1) ПОСЛЕ ПОЛУЧЕНИЯ BBOX СТРОИМ МАСКУ INPAINT ===
-    // ЧЁРНОЕ = НЕ редактировать (голова); БЕЛОЕ = редактировать (одежда/фон)
+    // === (1) ПОСТРОЕНИЕ INPAINT-МАСКИ (лицо «заморожено») ===
     async function buildHeadMaskB64(srcB64, bbox){
       const img = await loadImage("data:image/png;base64,"+srcB64);
       const W=img.width, H=img.height;
@@ -178,7 +176,7 @@
       return c.toDataURL("image/png").split(",")[1] || "";
     }
 
-    // Оверлей головы (копия из исходника) + водяной знак справа снизу
+    // Склейка головы + ВОДЯНОЙ ЗНАК (ЛОГО) в правом нижнем углу
     async function composeFaceAndLogo(base64Gen, base64Src, bbox){
       const genImg = await loadImage("data:image/png;base64,"+base64Gen);
       const srcImg = await loadImage("data:image/png;base64,"+base64Src);
@@ -189,7 +187,7 @@
       ctx.drawImage(genImg, 0, 0, W, H);
 
       if (bbox){
-        const big = expandBox(bbox, 1.8); // голова+волосы+верх плеч
+        const big = expandBox(bbox, 1.8);
         const sx=Math.round(big.x*srcImg.width);
         const sy=Math.round(big.y*srcImg.height);
         const sw=Math.round(big.w*srcImg.width);
@@ -217,19 +215,23 @@
         ctx.restore();
       }
 
-      // водяной знак (Logo.png) — ПРАВЫЙ НИЖНИЙ УГОЛ
+      // === ЛОГОТИП СПРАВА СНИЗУ ===
       try {
-        const logo = await loadImage(LOGO_URLS[0]);
+        const logo = await loadImage(LOGO_URL);
         const margin = Math.round(Math.min(W,H)*0.02);
-        const targetW = Math.round(W * 0.14);
+        const targetW = Math.round(W * 0.14); // ~14% ширины кадра
         const ratio = (logo.width||1)/(logo.height||1);
         const targetH = Math.round(targetW/ratio);
         const x = W - targetW - margin;
         const y = H - targetH - margin;
+
+        // белая подложка под логотипом (слегка прозрачная)
         ctx.globalAlpha = 0.95;
         ctx.fillStyle = "rgba(255,255,255,0.92)";
         const pad = Math.round(targetW*0.08);
         ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
+
+        // логотип
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
       } catch(_) {}
@@ -247,10 +249,9 @@
         genBtn.disabled = true;
 
         const displayable = await ensureDisplayableImage(pickedFile);
-        // читаем в base64 один раз (для маски и для склейки)
         const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(displayable); });
 
-        // 1) авто-пол (не обязателен для работы маски, но пусть будет)
+        // 1) пол
         let gender = "unknown";
         try {
           const fdG=new FormData(); fdG.append("image_b64", srcB64);
@@ -258,7 +259,7 @@
           const jG=await rG.json(); gender = jG?.gender || "unknown";
         } catch(_){}
 
-        // 2) детекция лица (bbox)
+        // 2) bbox
         let bbox = null;
         try {
           const fdD=new FormData(); fdD.append("image_b64", srcB64);
@@ -266,14 +267,14 @@
           const jD=await rD.json(); bbox = jD?.face?.box || null;
         } catch(_){}
 
-        // === (2) ПЕРЕД /api/generate — строим и отправляем mask_b64 ===
+        // 3) маска (если есть bbox)
         const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
 
-        // 3) генерация
+        // 4) генерация (отправляем mask_b64)
         const fd = new FormData();
-        fd.append("role", pickedRole);          // журналист/блогер/фотограф
+        fd.append("role", pickedRole);
         fd.append("image_b64", srcB64);
-        if (maskB64) fd.append("mask_b64", maskB64); // ← ВАЖНО: маска для inpainting
+        if (maskB64) fd.append("mask_b64", maskB64);
         fd.append("want_w","auto"); fd.append("want_h","auto");
 
         const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
@@ -282,7 +283,7 @@
         const data = raw ? JSON.parse(raw) : null;
         if (!data?.imageBase64) throw new Error("Пустой ответ API");
 
-        // 4) склейка головы + логотип (допстраховка; с маской может быть уже не нужно, но оставим)
+        // 5) склейка головы + логотип
         const finalUrl = await composeFaceAndLogo(data.imageBase64, srcB64, bbox);
 
         resultImg.src = finalUrl;

@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>почувствуй медиа</title>
-  <meta name="description" content="Мини-сайт: Журналист / Блоггер / Фотограф" />
+  <title>Почувствуй себя журналистом</title>
+  <meta name="description" content="Мини-сайт: Журналист / Блогер / Фотограф" />
   <style>
-    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#1d4ed8; --border:#e5e7eb; }
+    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#2563eb; --border:#e5e7eb; }
     * { box-sizing: border-box; }
     html, body { margin:0; padding:0; background:var(--bg); color:var(--fg);
       font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; min-height:100%; }
@@ -15,10 +15,11 @@
     header { display:flex; align-items:center; justify-content:center; position:relative; padding: 8px 0 24px; }
     .title { font-size: clamp(28px, 4vw, 48px); font-weight:600; letter-spacing:-0.02em; margin:0; text-align:center; }
 
-    /* Белая рамка-подложка под логотип */
+    /* Рамка-подложка для логотипа внизу (без абсолютов) */
     .video-logo-frame {
-      position: absolute; right: 60px; top: 0;
-      display: block;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       background:#ffffff;
       border:1px solid var(--border);
       border-radius: 12px;
@@ -30,17 +31,20 @@
       display:block;
       width: 80px; height: 80px;
       border-radius: 8px;
-      background:#ffffff; /* дублируем белый */
+      background:#ffffff; /* белая подложка */
       object-fit: contain;
       opacity: 0.95;
     }
+    .footer-logo { margin-top:12px; display:flex; justify-content:center; }
 
     .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition:.2s ease; }
     .uploader:hover { border-color:#93c5fd; background:#f0f9ff; }
     .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.9; margin:0 auto 12px; display:block; }
     .uploader .headline { font-size: clamp(18px, 2.4vw, 22px); font-weight:600; }
     .uploader .sub { font-size:14px; color: var(--muted); margin-top:6px; }
-    .uploader .picked { margin-top:8px; font-size:12px; color:#6b7280; }
+    .uploader .picked { margin-top:10px; font-size:14px; color:#111827; display:none; }
+    .uploader .picked strong { font-weight:800; }
+    .icon { width:16px; height:16px; vertical-align:-3px; margin-right:6px; }
 
     .roles { margin-top:22px; }
     .roles-title { text-align:center; font-weight:800; font-size:18px; }
@@ -51,10 +55,14 @@
     .role.active { border-color:#3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.2); }
     .role:disabled { opacity:.55; cursor:not-allowed; }
 
-    .actions { margin-top:18px; display:flex; flex-direction:column; align-items:center; gap:12px; }
-    .btn { appearance:none; border:0; border-radius:14px; padding:12px 18px; background:#2563eb; color:#fff; font-weight:600; cursor:pointer; }
+    .actions { margin-top:18px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+    .btn { appearance:none; border:0; border-radius:14px; padding:12px 18px; background:var(--brand); color:#fff; font-weight:600; cursor:pointer; }
     .btn:disabled { opacity:.55; cursor:not-allowed; }
     .link { display:inline-block; border:1px solid var(--border); border-radius:14px; padding:10px 16px; text-decoration:none; color:inherit; }
+
+    .loading { display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; }
+    .spinner { width:16px; height:16px; border:2px solid #cbd5e1; border-top-color: var(--brand); border-radius:50%; animation:spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     .result { margin-top:18px; text-align:center; }
     .result img { width:100%; max-width:860px; border-radius:18px; border:1px solid var(--border); }
@@ -69,35 +77,13 @@
       <h1 class="title" style="font-size: 3rem; font-weight: 800; color: #111827; margin-bottom: 10px;">
         Почувствуй себя журналистом
       </h1>
-
-      <!-- Белая рамка-подложка для логотипа -->
-      <span class="video-logo-frame">
-        <!-- Спрятанное видео-источник -->
-        <video
-          id="videoSource"
-          class="video-logo"
-          src="/logo-video.webm"
-          autoplay
-          muted
-          loop
-          playsinline
-          webkit-playsinline
-          preload="auto"
-          poster="/logo-video-poster.png"
-          style="display:none;background:#ffffff"
-          onerror="this.style.display='none'">
-        </video>
-
-        <!-- Видимый канвас с белой подложкой -->
-        <canvas id="videoCanvas" class="video-logo"></canvas>
-      </span>
     </header>
 
     <div class="uploader" id="dropzone">
       <img class="logo" src="/logo.png" alt="Логотип" onerror="this.style.display='none'">
       <div class="headline">Загрузите фотографию</div>
       <div class="sub">Ваша фотография · поддерживаются JPG, PNG, WEBP, HEIC</div>
-      <div class="picked" id="pickedName" style="display:none"></div>
+      <div class="picked" id="pickedName"></div>
       <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" style="display:none" />
     </div>
 
@@ -112,6 +98,10 @@
 
     <div class="actions">
       <button id="genBtn" class="btn" disabled>Сгенерировать образ</button>
+      <div id="loading" class="loading" style="display:none">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Обрабатываем…</span>
+      </div>
       <a id="downloadLink" class="link" download="image.png" style="display:none">Скачать PNG</a>
       <div id="err" style="font-size:14px;color:#dc2626;display:none"></div>
     </div>
@@ -125,15 +115,38 @@
   <footer>
     <div>факультет журналистики МГУ</div>
     <div class="sub">© 2025 с любовью КМ™</div>
+
+    <!-- Логотип-видео перенесён В САМИЙ НИЗ -->
+    <div class="footer-logo">
+      <span class="video-logo-frame">
+        <!-- Спрятанное видео-источник (чёрный фон не виден, рисуем в canvas) -->
+        <video
+          id="videoSource"
+          class="video-logo"
+          src="/logo-video.webm"
+          autoplay
+          muted
+          loop
+          playsinline
+          webkit-playsinline
+          preload="auto"
+          poster="/logo-video-poster.png"
+          style="display:none;background:#ffffff"
+          onerror="this.style.display='none'">
+        </video>
+        <!-- Видимый канвас с белой подложкой — видео «движется» -->
+        <canvas id="videoCanvas" class="video-logo"></canvas>
+      </span>
+    </div>
   </footer>
 
   <!-- HEIC -> JPEG converter -->
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
     // === CONFIG ===
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой адрес воркера
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← адрес воркера
 
-    // === Video logo → Canvas (белый фон гарантирован) ===
+    // === Video logo → Canvas (движение на белом фоне) ===
     (function initVideoCanvas() {
       const video = document.getElementById('videoSource');
       const canvas = document.getElementById('videoCanvas');
@@ -153,7 +166,6 @@
           requestAnimationFrame(draw);
           return;
         }
-        // задаём размер канваса под CSS-рамку 80x80 (см. .video-logo)
         const W = canvas.clientWidth || 80;
         const H = canvas.clientHeight || 80;
         if (canvas.width !== W) canvas.width = W;
@@ -164,7 +176,7 @@
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, W, H);
 
-        // рисуем видео "contain" со сглаживанием
+        // рисуем кадр с видео
         const {x,y,w,h} = fitContain(video.videoWidth, video.videoHeight, W, H);
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
@@ -174,9 +186,7 @@
         requestAnimationFrame(draw);
       }
 
-      // запускаем, когда видео готово
       video.addEventListener('loadeddata', () => requestAnimationFrame(draw));
-      // на всякий случай — если сразу можно рисовать
       if (video.readyState >= 2) requestAnimationFrame(draw);
     })();
 
@@ -192,6 +202,7 @@
     const resultBox = document.getElementById("resultBox");
     const resultImg = document.getElementById("resultImg");
     const downloadLink = document.getElementById("downloadLink");
+    const loadingBox = document.getElementById("loading");
 
     // Uploader
     dropzone.addEventListener("click", () => fileInput.click());
@@ -206,10 +217,19 @@
       if (f) onPick(f);
     });
 
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
     function onPick(f) {
       pickedFile = f;
       pickedName.style.display = "block";
-      pickedName.textContent = "Вы выбрали: " + f.name;
+      pickedName.innerHTML = `
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <strong>Вы загрузили:</strong> ${escapeHtml(f.name)}
+      `;
       updateButtons();
       clearError();
     }
@@ -232,6 +252,7 @@
     function showError(msg) {
       errBox.style.display = "block";
       errBox.textContent = msg;
+      loadingBox.style.display = "none";
     }
     function clearError() {
       errBox.style.display = "none";
@@ -292,6 +313,9 @@
         clearError();
         if (!API_BASE || !API_BASE.startsWith("http")) throw new Error("API не настроено. Проверь переменную API_BASE.");
 
+        loadingBox.style.display = "flex";
+        genBtn.disabled = true;
+
         const displayable = await ensureDisplayableImage(pickedFile);
         const fd = new FormData();
         fd.append("image", displayable);
@@ -304,14 +328,15 @@
         if (!data?.imageBase64) throw new Error("Пустой ответ API");
 
         const finalUrl = await renderWithWatermark(data.imageBase64, "/logo.png");
-        const a = document.createElement("a");
-        a.href = finalUrl; a.download = `image-${pickedRole}.png`;
         resultImg.src = finalUrl;
         resultBox.style.display = "block";
         downloadLink.href = finalUrl;
         downloadLink.style.display = "inline-block";
       } catch (e) {
         showError(e.message || String(e));
+      } finally {
+        loadingBox.style.display = "none";
+        genBtn.disabled = !(pickedFile && pickedRole);
       }
     });
   </script>

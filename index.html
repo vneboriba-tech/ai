@@ -142,9 +142,43 @@
 
     // helpers
     function loadImage(src){ return new Promise((resolve,reject)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>resolve(i); i.onerror=reject; i.src=src; }); }
-    function findLogoUrl(){ return LOGO_URLS[0]; } // при желании можно проверять по fetch()
+    function findLogoUrl(){ return LOGO_URLS[0]; } // при желании можно проверить по fetch()
 
-    // Оверлей головы (копия из исходника) + водяной знак в правом нижнем углу
+    // общий expandBox (нужен и для маски, и для склейки)
+    function expandBox(box, scale){
+      const cx = box.x + box.w/2, cy = box.y + box.h/2;
+      const nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.2);
+      let nx = cx - nw/2, ny = cy - nh/2;
+      if (nx < 0) nx = 0; if (ny < 0) ny = 0;
+      if (nx + nw > 1) nx = 1 - nw; if (ny + nh > 1) ny = 1 - nh;
+      return { x: nx, y: ny, w: nw, h: nh };
+    }
+
+    // === (1) ПОСЛЕ ПОЛУЧЕНИЯ BBOX СТРОИМ МАСКУ INPAINT ===
+    // ЧЁРНОЕ = НЕ редактировать (голова); БЕЛОЕ = редактировать (одежда/фон)
+    async function buildHeadMaskB64(srcB64, bbox){
+      const img = await loadImage("data:image/png;base64,"+srcB64);
+      const W=img.width, H=img.height;
+      const c=document.createElement("canvas"); c.width=W; c.height=H;
+      const ctx=c.getContext("2d");
+      ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H); // белый — редактируем
+
+      if (bbox){
+        const big = expandBox(bbox, 1.95);
+        const x=Math.round(big.x*W), y=Math.round(big.y*H);
+        const w=Math.round(big.w*W), h=Math.round(big.h*H);
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, 2*Math.PI);
+        ctx.clip();
+        ctx.fillStyle="#000000";              // чёрный — НЕ редактируем (голова)
+        ctx.fillRect(x,y,w,h);
+        ctx.restore();
+      }
+      return c.toDataURL("image/png").split(",")[1] || "";
+    }
+
+    // Оверлей головы (копия из исходника) + водяной знак справа снизу
     async function composeFaceAndLogo(base64Gen, base64Src, bbox){
       const genImg = await loadImage("data:image/png;base64,"+base64Gen);
       const srcImg = await loadImage("data:image/png;base64,"+base64Src);
@@ -155,16 +189,7 @@
       ctx.drawImage(genImg, 0, 0, W, H);
 
       if (bbox){
-        // расширяем область (голова+волосы+верх плеч)
-        const big = (function expandBox(box, scale){
-          const cx = box.x + box.w/2, cy = box.y + box.h/2;
-          const nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.2);
-          let nx = cx - nw/2, ny = cy - nh/2;
-          if (nx < 0) nx = 0; if (ny < 0) ny = 0;
-          if (nx + nw > 1) nx = 1 - nw; if (ny + nh > 1) ny = 1 - nh;
-          return { x: nx, y: ny, w: nw, h: nh };
-        })(bbox, 1.8);
-
+        const big = expandBox(bbox, 1.8); // голова+волосы+верх плеч
         const sx=Math.round(big.x*srcImg.width);
         const sy=Math.round(big.y*srcImg.height);
         const sw=Math.round(big.w*srcImg.width);
@@ -194,15 +219,15 @@
 
       // водяной знак (Logo.png) — ПРАВЫЙ НИЖНИЙ УГОЛ
       try {
-        const logo = await loadImage(findLogoUrl());
-        const margin = Math.round(Math.min(W,H)*0.02);     // 2% от меньшей стороны как отступ
-        const targetW = Math.round(W * 0.14);              // ширина логотипа ~14% ширины кадра
+        const logo = await loadImage(LOGO_URLS[0]);
+        const margin = Math.round(Math.min(W,H)*0.02);
+        const targetW = Math.round(W * 0.14);
         const ratio = (logo.width||1)/(logo.height||1);
         const targetH = Math.round(targetW/ratio);
         const x = W - targetW - margin;
         const y = H - targetH - margin;
         ctx.globalAlpha = 0.95;
-        ctx.fillStyle = "rgba(255,255,255,0.92)";          // белая подложка за логотипом
+        ctx.fillStyle = "rgba(255,255,255,0.92)";
         const pad = Math.round(targetW*0.08);
         ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
         ctx.drawImage(logo, x, y, targetW, targetH);
@@ -222,10 +247,10 @@
         genBtn.disabled = true;
 
         const displayable = await ensureDisplayableImage(pickedFile);
-        // читаем в base64 один раз (для склейки лица)
+        // читаем в base64 один раз (для маски и для склейки)
         const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(displayable); });
 
-        // 1) пол
+        // 1) авто-пол (не обязателен для работы маски, но пусть будет)
         let gender = "unknown";
         try {
           const fdG=new FormData(); fdG.append("image_b64", srcB64);
@@ -233,7 +258,7 @@
           const jG=await rG.json(); gender = jG?.gender || "unknown";
         } catch(_){}
 
-        // 2) лицо (bbox)
+        // 2) детекция лица (bbox)
         let bbox = null;
         try {
           const fdD=new FormData(); fdD.append("image_b64", srcB64);
@@ -241,18 +266,23 @@
           const jD=await rD.json(); bbox = jD?.face?.box || null;
         } catch(_){}
 
+        // === (2) ПЕРЕД /api/generate — строим и отправляем mask_b64 ===
+        const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
+
         // 3) генерация
         const fd = new FormData();
-        fd.append("role", pickedRole);          // русские роли: журналист/блогер/фотограф
+        fd.append("role", pickedRole);          // журналист/блогер/фотограф
         fd.append("image_b64", srcB64);
+        if (maskB64) fd.append("mask_b64", maskB64); // ← ВАЖНО: маска для inpainting
         fd.append("want_w","auto"); fd.append("want_h","auto");
+
         const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
         const raw = await resp.text();
         if (!resp.ok) throw new Error(raw || ("HTTP "+resp.status));
         const data = raw ? JSON.parse(raw) : null;
         if (!data?.imageBase64) throw new Error("Пустой ответ API");
 
-        // 4) склейка головы + логотип справа снизу
+        // 4) склейка головы + логотип (допстраховка; с маской может быть уже не нужно, но оставим)
         const finalUrl = await composeFaceAndLogo(data.imageBase64, srcB64, bbox);
 
         resultImg.src = finalUrl;

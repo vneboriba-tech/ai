@@ -1,21 +1,30 @@
-const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
 <!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>почувствуй медиа</title>
-  <meta name="description" content="Мини‑сайт: Журналист / Блоггер / Фотограф" />
+  <meta name="description" content="Мини-сайт: Журналист / Блоггер / Фотограф" />
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#1d4ed8; --border:#e5e7eb; }
     * { box-sizing: border-box; }
     html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Avenir Next", Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
     .container { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; }
     header { display:flex; align-items:center; justify-content:center; position:relative; padding: 8px 0 24px; }
-    .tiny-logo { position:absolute; left:0; top:50%; transform: translateY(-50%); width:48px; height:48px; object-fit:contain; opacity:.95; }
+    .tiny-logo { position:absolute; left:0; top:50%; transform: translateY(-50%); width:48px; height:48px; object-fit:contain; opacity:.95; display:none; }
     .title { font-size: clamp(28px, 4vw, 48px); font-weight:600; letter-spacing:-0.02em; margin:0; text-align:center; }
-    .video-logo { position:absolute; right:0; top:50%; transform: translateY(-50%); width:96px; height:96px; object-fit:contain; display:none; }
-    @media (min-width: 900px) { .video-logo { display:block; } }
+    .video-logo {
+      position: absolute;
+      right: 60px;
+      top: 0;
+      width: 80px;
+      height: auto;
+      border-radius: 10px;
+      opacity: 0.95;
+      display: block;
+      background-color: white; /* <<< белый фон под видео */
+      padding: 4px; /* чуть воздуха */
+    }
 
     .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition: .2s ease; }
     .uploader:hover { border-color:#93c5fd; background:#f0f9ff; }
@@ -46,23 +55,21 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
 </head>
 <body>
   <div class="container">
-<header style="position: relative; text-align: center; margin-top: 40px;">
-  <h1 class="title" style="font-size: 3rem; font-weight: 800; color: #111827; margin-bottom: 10px;">
-    почувствуй медиа
-  </h1>
+    <header style="position: relative; text-align: center; margin-top: 40px;">
+      <h1 class="title" style="font-size: 3rem; font-weight: 800; color: #111827; margin-bottom: 10px;">
+        почувствуй медиа
+      </h1>
 
-  <video 
-    class="video-logo" 
-    src="/logo-video.webm" 
-    autoplay 
-    loop 
-    muted 
-    playsinline 
-    style="position: absolute; right: 60px; top: 0; width: 80px; height: auto; border-radius: 10px; opacity: 0.9;"
-    onerror="this.style.display='none'">
-  </video>
-</header>
-
+      <video 
+        class="video-logo" 
+        src="/logo-video.webm" 
+        autoplay 
+        loop 
+        muted 
+        playsinline 
+        onerror="this.style.display='none'">
+      </video>
+    </header>
 
     <div class="uploader" id="dropzone">
       <img class="logo" src="/logo.png" alt="Логотип" onerror="this.style.display='none'">
@@ -102,8 +109,7 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
     // === CONFIG ===
-    // 1) Укажи ссылку на свой Worker ниже (или добавь ?api=... в адресную строку)
-    const API_BASE = new URLSearchParams(location.search).get("api") || "https://YOUR-WORKER-NAME.YOUR-ACCOUNT.workers.dev";
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой правильный адрес
 
     // === State ===
     let pickedFile = null;
@@ -118,7 +124,7 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
     const resultImg = document.getElementById("resultImg");
     const downloadLink = document.getElementById("downloadLink");
 
-    // Uploader
+    // Uploader logic...
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => e.preventDefault());
     dropzone.addEventListener("drop", (e) => {
@@ -139,7 +145,6 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
       clearError();
     }
 
-    // Roles
     document.querySelectorAll(".role").forEach(btn => {
       btn.addEventListener("click", () => {
         if (!pickedFile) return;
@@ -163,7 +168,6 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
       errBox.textContent = "";
     }
 
-    // HEIC conversion if needed
     async function ensureDisplayableImage(file) {
       const type = (file.type || "").toLowerCase();
       const name = (file.name || "").toLowerCase();
@@ -174,33 +178,13 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
       return new File([outBlob], (file.name || "image") + ".jpg", { type: "image/jpeg" });
     }
 
-    // Watermark + slight random variation
     async function renderWithWatermark(base64, logoUrl) {
       const img = await loadImage("data:image/png;base64," + base64);
       const logo = await loadImage(logoUrl).catch(() => null);
-
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       canvas.width = img.width; canvas.height = img.height;
-
-      // slight random tint (variety)
-      ctx.filter = `hue-rotate(${(Date.now()%360)}deg) saturate(1.02)`;
       ctx.drawImage(img, 0, 0);
-      ctx.filter = "none";
-
-      // subtle grain (optional)
-      try {
-        const g = ctx.createImageData(canvas.width, canvas.height);
-        for (let i = 0; i < g.data.length; i += 4*64) {
-          g.data[i] = g.data[i] || 0
-          g.data[i+1] = g.data[i+1] || 0
-          g.data[i+2] = g.data[i+2] || 0
-          g.data[i+3] = 4; // very light grain
-        }
-        ctx.putImageData(g, 0, 0);
-      } catch (e) { /* ignore */ }
-
-      // watermark bottom-center if logo exists
       if (logo) {
         const targetW = Math.round(canvas.width * 0.12);
         const ratio = (logo.width || 1) / (logo.height || 1);
@@ -211,7 +195,6 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
       }
-
       return canvas.toDataURL("image/png");
     }
 
@@ -225,37 +208,22 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
       });
     }
 
-    // Generate
     genBtn.addEventListener("click", async () => {
       try {
         clearError();
-        if (!API_BASE || !API_BASE.startsWith("http")) throw new Error("API не настроено. Укажи URL воркера в index.html (API_BASE).");
-
-        // prepare file (HEIC -> JPEG)
         const displayable = await ensureDisplayableImage(pickedFile);
-
         const fd = new FormData();
         fd.append("image", displayable);
         fd.append("role", pickedRole);
 
-        const resp = await fetch(API_BASE.replace(/\/+$/, '') + "/api/generate", {
-          method: "POST", body: fd
-        });
-        if (!resp.ok) {
-          const t = await resp.text();
-          throw new Error("API error: " + t);
-        }
+        const resp = await fetch(API_BASE + "api/generate", { method: "POST", body: fd });
+        if (!resp.ok) throw new Error(await resp.text());
         const data = await resp.json();
-        if (!data || !data.imageBase64) throw new Error("Пустой ответ API");
-
         const finalUrl = await renderWithWatermark(data.imageBase64, "/logo.png");
         resultImg.src = finalUrl;
         resultBox.style.display = "block";
-        downloadLink.style.display = "inline-block";
         downloadLink.href = finalUrl;
-        downloadLink.download = `image-${pickedRole}.png`;
-
-        try { window.open(finalUrl, "_blank"); } catch {}
+        downloadLink.style.display = "inline-block";
       } catch (e) {
         showError(e.message || String(e));
       }

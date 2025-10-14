@@ -46,11 +46,23 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
 </head>
 <body>
   <div class="container">
-    <header>
-      <img class="tiny-logo" src="/logo.png" alt="Логотип" onerror="this.style.display='none'">
-      <h1 class="title">почувствуй медиа</h1>
-      <video class="video-logo" src="/logo-video.webm" autoplay loop muted playsinline onerror="this.style.display='none'"></video>
-    </header>
+<header style="position: relative; text-align: center; margin-top: 40px;">
+  <h1 class="title" style="font-size: 3rem; font-weight: 800; color: #111827; margin-bottom: 10px;">
+    почувствуй медиа
+  </h1>
+
+  <video 
+    class="video-logo" 
+    src="/logo-video.webm" 
+    autoplay 
+    loop 
+    muted 
+    playsinline 
+    style="position: absolute; right: 60px; top: 0; width: 80px; height: auto; border-radius: 10px; opacity: 0.9;"
+    onerror="this.style.display='none'">
+  </video>
+</header>
+
 
     <div class="uploader" id="dropzone">
       <img class="logo" src="/logo.png" alt="Логотип" onerror="this.style.display='none'">

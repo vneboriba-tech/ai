@@ -16,7 +16,6 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const assetsBase = (process?.env?.NEXT_PUBLIC_ASSETS_BASE as string) || "";
   const apiBase = (process?.env?.NEXT_PUBLIC_API_BASE as string) || "";
 
   const onFile = useCallback((f: File | null) => {
@@ -102,7 +101,9 @@ export default function App() {
       <div className="container">
         <header>
           {/* маленький логотип слева */}
-          <img className="tiny-logo" src={`${assetsBase}/ЛОГО.png`} alt="Логотип" />
+          <img className="tiny-logo" src={`${assetsBase}/logo.png`} alt="Логотип" />
+          <video className="video-logo" src="/logo-video.webm" … />
+          <img className="logo" src="/logo.png" … />
           <h1 className="brand-title title">почувствуй медиа</h1>
           {/* видео-логотип справа */}
           <video className="video-logo" src={`${assetsBase}/logo-video.webm`} autoPlay loop muted playsInline />

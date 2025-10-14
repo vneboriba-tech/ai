@@ -15,28 +15,6 @@
     header { display:flex; align-items:center; justify-content:center; position:relative; padding: 8px 0 24px; }
     .title { font-size: clamp(28px, 4vw, 48px); font-weight:600; letter-spacing:-0.02em; margin:0; text-align:center; }
 
-    /* Рамка-подложка для логотипа внизу (без абсолютов) */
-    .video-logo-frame {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      background:#ffffff;
-      border:1px solid var(--border);
-      border-radius: 12px;
-      padding: 6px;
-      box-shadow: 0 6px 18px rgba(0,0,0,.06);
-    }
-    /* Размер области логотипа (и для video, и для canvas) */
-    .video-logo {
-      display:block;
-      width: 80px; height: 80px;
-      border-radius: 8px;
-      background:#ffffff; /* белая подложка */
-      object-fit: contain;
-      opacity: 0.95;
-    }
-    .footer-logo { margin-top:12px; display:flex; justify-content:center; }
-
     .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition:.2s ease; }
     .uploader:hover { border-color:#93c5fd; background:#f0f9ff; }
     .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.9; margin:0 auto 12px; display:block; }
@@ -80,9 +58,9 @@
     </header>
 
     <div class="uploader" id="dropzone">
-      <img class="logo" src="/logo.png" alt="Логотип" onerror="this.style.display='none'">
+      <img class="logo" src="./Logo.png" alt="Логотип" onerror="this.style.display='none'">
       <div class="headline">Загрузите фотографию</div>
-      <div class="sub">Ваша фотография · поддерживаются JPG, PNG, WEBP, HEIC</div>
+      <div class="sub">Поддерживаются JPG, PNG, WEBP, HEIC</div>
       <div class="picked" id="pickedName"></div>
       <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" style="display:none" />
     </div>
@@ -90,9 +68,9 @@
     <section class="roles">
       <div class="roles-title">Выберите героя 👉</div>
       <div class="roles-grid">
-        <button class="role" data-role="journalist"><div style="font-size:16px;font-weight:600">Журналист</div></button>
-        <button class="role" data-role="blogger"><div style="font-size:16px;font-weight:600">Блогер</div></button>
-        <button class="role" data-role="photographer"><div style="font-size:16px;font-weight:600">Фотограф</div></button>
+        <button class="role" data-role="журналист"><div style="font-size:16px;font-weight:600">Журналист</div></button>
+        <button class="role" data-role="блогер"><div style="font-size:16px;font-weight:600">Блогер</div></button>
+        <button class="role" data-role="фотограф"><div style="font-size:16px;font-weight:600">Фотограф</div></button>
       </div>
     </section>
 
@@ -115,82 +93,16 @@
   <footer>
     <div>факультет журналистики МГУ</div>
     <div class="sub">© 2025 с любовью КМ™</div>
-
-    <!-- Логотип-видео перенесён В САМИЙ НИЗ -->
-    <div class="footer-logo">
-      <span class="video-logo-frame">
-        <!-- Спрятанное видео-источник (чёрный фон не виден, рисуем в canvas) -->
-        <video
-          id="videoSource"
-          class="video-logo"
-          src="/logo-video.webm"
-          autoplay
-          muted
-          loop
-          playsinline
-          webkit-playsinline
-          preload="auto"
-          poster="/logo-video-poster.png"
-          style="display:none;background:#ffffff"
-          onerror="this.style.display='none'">
-        </video>
-        <!-- Видимый канвас с белой подложкой — видео «движется» -->
-        <canvas id="videoCanvas" class="video-logo"></canvas>
-      </span>
-    </div>
   </footer>
 
   <!-- HEIC -> JPEG converter -->
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
-    // === CONFIG ===
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← адрес воркера
+    // ====== CONFIG ======
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой Worker URL
+    const LOGO_URLS = ["./Logo.png", "./logo.png"]; // пробуем оба кейса
 
-    // === Video logo → Canvas (движение на белом фоне) ===
-    (function initVideoCanvas() {
-      const video = document.getElementById('videoSource');
-      const canvas = document.getElementById('videoCanvas');
-      const ctx = canvas.getContext('2d');
-
-      function fitContain(srcW, srcH, dstW, dstH) {
-        const s = Math.min(dstW / srcW, dstH / srcH);
-        const w = Math.round(srcW * s);
-        const h = Math.round(srcH * s);
-        const x = Math.round((dstW - w) / 2);
-        const y = Math.round((dstH - h) / 2);
-        return {x,y,w,h};
-      }
-
-      function draw() {
-        if (!video.videoWidth || !video.videoHeight) {
-          requestAnimationFrame(draw);
-          return;
-        }
-        const W = canvas.clientWidth || 80;
-        const H = canvas.clientHeight || 80;
-        if (canvas.width !== W) canvas.width = W;
-        if (canvas.height !== H) canvas.height = H;
-
-        // белая подложка
-        ctx.save();
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, W, H);
-
-        // рисуем кадр с видео
-        const {x,y,w,h} = fitContain(video.videoWidth, video.videoHeight, W, H);
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        try { ctx.drawImage(video, x, y, w, h); } catch (e) {}
-        ctx.restore();
-
-        requestAnimationFrame(draw);
-      }
-
-      video.addEventListener('loadeddata', () => requestAnimationFrame(draw));
-      if (video.readyState >= 2) requestAnimationFrame(draw);
-    })();
-
-    // === State ===
+    // ====== State ======
     let pickedFile = null;
     let pickedRole = null;
 
@@ -207,127 +119,142 @@
     // Uploader
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => e.preventDefault());
-    dropzone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      const f = e.dataTransfer.files?.[0];
-      if (f) onPick(f);
-    });
-    fileInput.addEventListener("change", (e) => {
-      const f = e.target.files?.[0];
-      if (f) onPick(f);
-    });
+    dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); });
+    fileInput.addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) onPick(f); });
 
-    function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-    }
+    function escapeHtml(s){return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+    function onPick(f){ pickedFile=f; pickedName.style.display="block"; pickedName.innerHTML=`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg><strong>Вы загрузили:</strong> ${escapeHtml(f.name)}`; updateButtons(); clearError(); }
+    document.querySelectorAll(".role").forEach(btn => btn.addEventListener("click", ()=>{ if(!pickedFile) return; pickedRole=btn.dataset.role; document.querySelectorAll(".role").forEach(b=>b.classList.remove("active")); btn.classList.add("active"); updateButtons(); }));
 
-    function onPick(f) {
-      pickedFile = f;
-      pickedName.style.display = "block";
-      pickedName.innerHTML = `
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-        <strong>Вы загрузили:</strong> ${escapeHtml(f.name)}
-      `;
-      updateButtons();
-      clearError();
-    }
+    function updateButtons(){ genBtn.disabled = !(pickedFile && pickedRole); }
+    function showError(msg){ errBox.style.display="block"; errBox.textContent=msg; loadingBox.style.display="none"; }
+    function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
 
-    // Roles
-    document.querySelectorAll(".role").forEach(btn => {
-      btn.addEventListener("click", () => {
-        if (!pickedFile) return;
-        pickedRole = btn.dataset.role;
-        document.querySelectorAll(".role").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        updateButtons();
-      });
-    });
-
-    function updateButtons() {
-      genBtn.disabled = !(pickedFile && pickedRole);
-    }
-
-    function showError(msg) {
-      errBox.style.display = "block";
-      errBox.textContent = msg;
-      loadingBox.style.display = "none";
-    }
-    function clearError() {
-      errBox.style.display = "none";
-      errBox.textContent = "";
-    }
-
-    // HEIC conversion if needed
-    async function ensureDisplayableImage(file) {
-      const type = (file.type || "").toLowerCase();
-      const name = (file.name || "").toLowerCase();
+    // HEIC → JPEG если надо
+    async function ensureDisplayableImage(file){
+      const type=(file.type||"").toLowerCase(); const name=(file.name||"").toLowerCase();
       const isHeic = type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
       if (!isHeic) return file;
-      if (!window.heic2any) throw new Error("HEIC-файл, но конвертер heic2any недоступен.");
+      if (!window.heic2any) throw new Error("HEIC-файл, но конвертер недоступен");
       const outBlob = await window.heic2any({ blob: file, toType: "image/jpeg" });
-      return new File([outBlob], (file.name || "image") + ".jpg", { type: "image/jpeg" });
+      return new File([outBlob], (file.name || "image") + ".jpg", { type:"image/jpeg" });
     }
 
-    // Watermark + slight random variety
-    async function renderWithWatermark(base64, logoUrl) {
-      const img = await loadImage("data:image/png;base64," + base64);
-      const logo = await loadImage(logoUrl).catch(() => null);
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      canvas.width = img.width; canvas.height = img.height;
+    // helpers
+    function loadImage(src){ return new Promise((resolve,reject)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>resolve(i); i.onerror=reject; i.src=src; }); }
+    function findLogoUrl(){ return LOGO_URLS[0]; } // при желании можно проверять по fetch()
 
-      // лёгкая вариативность
-      ctx.filter = `hue-rotate(${(Date.now()%360)}deg) saturate(1.02)`;
-      ctx.drawImage(img, 0, 0);
-      ctx.filter = "none";
+    // Оверлей головы (копия из исходника) + водяной знак в правом нижнем углу
+    async function composeFaceAndLogo(base64Gen, base64Src, bbox){
+      const genImg = await loadImage("data:image/png;base64,"+base64Gen);
+      const srcImg = await loadImage("data:image/png;base64,"+base64Src);
 
-      // водяной знак
-      if (logo) {
-        const targetW = Math.round(canvas.width * 0.12);
-        const ratio = (logo.width || 1) / (logo.height || 1);
-        const targetH = Math.round(targetW / ratio);
-        const x = Math.round((canvas.width - targetW) / 2);
-        const y = Math.round(canvas.height - targetH - canvas.height * 0.03);
-        ctx.globalAlpha = 0.92;
+      const W=genImg.width, H=genImg.height;
+      const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
+      const ctx=canvas.getContext("2d");
+      ctx.drawImage(genImg, 0, 0, W, H);
+
+      if (bbox){
+        // расширяем область (голова+волосы+верх плеч)
+        const big = (function expandBox(box, scale){
+          const cx = box.x + box.w/2, cy = box.y + box.h/2;
+          const nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.2);
+          let nx = cx - nw/2, ny = cy - nh/2;
+          if (nx < 0) nx = 0; if (ny < 0) ny = 0;
+          if (nx + nw > 1) nx = 1 - nw; if (ny + nh > 1) ny = 1 - nh;
+          return { x: nx, y: ny, w: nw, h: nh };
+        })(bbox, 1.8);
+
+        const sx=Math.round(big.x*srcImg.width);
+        const sy=Math.round(big.y*srcImg.height);
+        const sw=Math.round(big.w*srcImg.width);
+        const sh=Math.round(big.h*srcImg.height);
+        const dx=Math.round(big.x*W);
+        const dy=Math.round(big.y*H);
+        const dw=Math.round(big.w*W);
+        const dh=Math.round(big.h*H);
+
+        // перьевая маска
+        const mask=document.createElement("canvas"); mask.width=dw; mask.height=dh;
+        const mctx=mask.getContext("2d");
+        const r=Math.min(dw,dh);
+        const grad=mctx.createRadialGradient(dw/2, dh/2, r*0.32, dw/2, dh/2, r*0.50);
+        grad.addColorStop(0,"rgba(0,0,0,1)"); grad.addColorStop(1,"rgba(0,0,0,0)");
+        mctx.fillStyle=grad; mctx.fillRect(0,0,dw,dh);
+
+        const face=document.createElement("canvas"); face.width=dw; face.height=dh;
+        const fctx=face.getContext("2d"); fctx.drawImage(srcImg, sx, sy, sw, sh, 0, 0, dw, dh);
+
+        ctx.save();
+        ctx.drawImage(face, dx, dy, dw, dh);
+        ctx.globalCompositeOperation='destination-in';
+        ctx.drawImage(mask, dx, dy);
+        ctx.restore();
+      }
+
+      // водяной знак (Logo.png) — ПРАВЫЙ НИЖНИЙ УГОЛ
+      try {
+        const logo = await loadImage(findLogoUrl());
+        const margin = Math.round(Math.min(W,H)*0.02);     // 2% от меньшей стороны как отступ
+        const targetW = Math.round(W * 0.14);              // ширина логотипа ~14% ширины кадра
+        const ratio = (logo.width||1)/(logo.height||1);
+        const targetH = Math.round(targetW/ratio);
+        const x = W - targetW - margin;
+        const y = H - targetH - margin;
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = "rgba(255,255,255,0.92)";          // белая подложка за логотипом
+        const pad = Math.round(targetW*0.08);
+        ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
-      }
+      } catch(_) {}
+
       return canvas.toDataURL("image/png");
     }
 
-    function loadImage(src) {
-      return new Promise((resolve, reject) => {
-        const i = new Image();
-        i.crossOrigin = "anonymous";
-        i.onload = () => resolve(i);
-        i.onerror = reject;
-        i.src = src;
-      });
-    }
-
-    // Generate
+    // Main
     genBtn.addEventListener("click", async () => {
       try {
         clearError();
-        if (!API_BASE || !API_BASE.startsWith("http")) throw new Error("API не настроено. Проверь переменную API_BASE.");
+        if (!API_BASE || !API_BASE.startsWith("http")) throw new Error("API не настроено. Проверь API_BASE.");
 
         loadingBox.style.display = "flex";
         genBtn.disabled = true;
 
         const displayable = await ensureDisplayableImage(pickedFile);
+        // читаем в base64 один раз (для склейки лица)
+        const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(displayable); });
+
+        // 1) пол
+        let gender = "unknown";
+        try {
+          const fdG=new FormData(); fdG.append("image_b64", srcB64);
+          const rG=await fetch(API_BASE.replace(/\/+$/,'') + "/api/gender", { method:"POST", body:fdG });
+          const jG=await rG.json(); gender = jG?.gender || "unknown";
+        } catch(_){}
+
+        // 2) лицо (bbox)
+        let bbox = null;
+        try {
+          const fdD=new FormData(); fdD.append("image_b64", srcB64);
+          const rD=await fetch(API_BASE.replace(/\/+$/,'') + "/api/detect-face", { method:"POST", body:fdD });
+          const jD=await rD.json(); bbox = jD?.face?.box || null;
+        } catch(_){}
+
+        // 3) генерация
         const fd = new FormData();
-        fd.append("image", displayable);
-        fd.append("role", pickedRole);
-
-        const resp = await fetch(API_BASE.replace(/\/+$/, '') + "/api/generate", { method: "POST", body: fd });
-        if (!resp.ok) throw new Error(await resp.text());
-
-        const data = await resp.json();
+        fd.append("role", pickedRole);          // русские роли: журналист/блогер/фотограф
+        fd.append("image_b64", srcB64);
+        fd.append("want_w","auto"); fd.append("want_h","auto");
+        const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
+        const raw = await resp.text();
+        if (!resp.ok) throw new Error(raw || ("HTTP "+resp.status));
+        const data = raw ? JSON.parse(raw) : null;
         if (!data?.imageBase64) throw new Error("Пустой ответ API");
 
-        const finalUrl = await renderWithWatermark(data.imageBase64, "/logo.png");
+        // 4) склейка головы + логотип справа снизу
+        const finalUrl = await composeFaceAndLogo(data.imageBase64, srcB64, bbox);
+
         resultImg.src = finalUrl;
         resultBox.style.display = "block";
         downloadLink.href = finalUrl;

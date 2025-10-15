@@ -4,107 +4,81 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Почувствуй себя журналистом</title>
+  <meta name="description" content="Мини-сайт: Журналист / Блогер / Фотограф" />
   <style>
-    body { font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-      background: #fff; color: #111; margin:0; padding:0; display:flex; flex-direction:column; align-items:center; }
-    h1 { margin: 24px 0 8px; font-size: 2rem; }
-    .uploader { border:2px dashed #ccc; border-radius:20px; padding:30px; text-align:center; cursor:pointer; max-width:420px; transition:.3s; }
-    .uploader:hover { background:#f9f9f9; border-color:#60a5fa; }
-    #fileInput { display:none; }
-    #pickedName { margin-top:8px; font-size:14px; color:#374151; display:none; }
-    button { background:#2563eb; color:#fff; border:none; padding:10px 18px; border-radius:10px; font-weight:600; cursor:pointer; }
-    button:disabled { opacity:.6; cursor:not-allowed; }
-    footer { margin-top:auto; padding:30px; color:#555; font-size:13px; }
-    img#resultImg { max-width: 600px; border-radius: 12px; margin-top: 18px; display:none; }
+    :root { --bg:#fff; --fg:#111; --border:#e5e7eb; --brand:#2563eb; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:-apple-system, BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial; }
+    .container { max-width:960px; margin:0 auto; padding:24px; text-align:center; }
+    .uploader { border:2px dashed var(--border); border-radius:24px; padding:36px; margin:20px 0; cursor:pointer; }
+    .roles { display:flex; justify-content:center; gap:10px; margin:20px 0; }
+    .role { border:1px solid var(--border); padding:12px 18px; border-radius:12px; cursor:pointer; background:#fff; }
+    .role.active { border-color:var(--brand); background:#eff6ff; font-weight:700; }
+    .btn { background:var(--brand); color:#fff; padding:12px 20px; border-radius:14px; border:none; cursor:pointer; font-weight:600; }
+    .result img { max-width:100%; border-radius:20px; margin-top:20px; border:1px solid var(--border); }
   </style>
 </head>
 <body>
+<div class="container">
   <h1>Почувствуй себя журналистом</h1>
-
-  <div class="uploader" id="dropzone">
-    <div>📷 Нажмите или перетащите фото</div>
-    <div style="font-size:13px;color:#666;">Поддерживаются JPG, PNG, WEBP, HEIC</div>
-    <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" />
-    <div id="pickedName"></div>
+  <div class="uploader" id="dropzone">Загрузите фото (JPG, PNG, HEIC)</div>
+  <input id="fileInput" type="file" accept="image/*" style="display:none" />
+  <div class="roles">
+    <div class="role" data-role="журналист">Журналист</div>
+    <div class="role" data-role="блогер">Блогер</div>
+    <div class="role" data-role="фотограф">Фотограф</div>
   </div>
+  <button class="btn" id="genBtn" disabled>Создать образ</button>
+  <div id="result" class="result"></div>
+</div>
 
-  <div style="margin-top:20px;">
-    <button id="genBtn" disabled>Сгенерировать</button>
-  </div>
+<script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
+<script>
+const API_BASE = "https://your-worker-name.workers.dev/";
+let pickedFile = null, pickedRole = null;
 
-  <div id="loading" style="margin-top:10px; display:none;">⏳ Обрабатываем…</div>
-  <img id="resultImg" alt="Результат" />
+const fileInput = document.getElementById("fileInput");
+const dropzone = document.getElementById("dropzone");
+const genBtn = document.getElementById("genBtn");
+const resultBox = document.getElementById("result");
 
-  <footer>© 2025 факультет журналистики МГУ</footer>
+dropzone.onclick = () => fileInput.click();
+fileInput.onchange = e => { if (e.target.files[0]) onPick(e.target.files[0]); };
+dropzone.ondragover = e => e.preventDefault();
+dropzone.ondrop = e => { e.preventDefault(); if (e.dataTransfer.files[0]) onPick(e.dataTransfer.files[0]); };
 
-  <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
-  <script>
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
-    const dropzone = document.getElementById("dropzone");
-    const fileInput = document.getElementById("fileInput");
-    const pickedName = document.getElementById("pickedName");
-    const genBtn = document.getElementById("genBtn");
-    const loading = document.getElementById("loading");
-    const resultImg = document.getElementById("resultImg");
-    let pickedFile = null;
+function onPick(file){ pickedFile=file; dropzone.textContent = "Вы выбрали: "+file.name; update(); }
+document.querySelectorAll(".role").forEach(b => b.onclick = () => { document.querySelectorAll(".role").forEach(x=>x.classList.remove("active")); b.classList.add("active"); pickedRole=b.dataset.role; update(); });
+function update(){ genBtn.disabled = !(pickedFile && pickedRole); }
 
-    dropzone.addEventListener("click", () => fileInput.click());
-    dropzone.addEventListener("dragover", e => e.preventDefault());
-    dropzone.addEventListener("drop", e => {
-      e.preventDefault();
-      const f = e.dataTransfer.files?.[0];
-      if (f) onPick(f);
-    });
-    fileInput.addEventListener("change", e => {
-      const f = e.target.files?.[0];
-      if (f) onPick(f);
-    });
+async function ensureImageFile(file){
+  const type=(file.type||"").toLowerCase(); if(type.includes("heic")||type.includes("heif")) try{
+    const out = await heic2any({ blob:file, toType:"image/jpeg" });
+    return new File([out], "converted.jpg", { type:"image/jpeg" });
+  }catch(e){ console.warn("heic fail", e); }
+  return file;
+}
 
-    function onPick(f) {
-      pickedFile = f;
-      pickedName.style.display = "block";
-      pickedName.textContent = "Выбрано: " + f.name;
-      genBtn.disabled = false;
-    }
-
-    async function convertHeic(file) {
-      const type = (file.type || "").toLowerCase();
-      const name = (file.name || "").toLowerCase();
-      if (!(type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif"))) return file;
-      try {
-        const outBlob = await heic2any({ blob: file, toType: "image/jpeg" });
-        return new File([outBlob], "converted.jpg", { type: "image/jpeg" });
-      } catch {
-        return file;
-      }
-    }
-
-    genBtn.addEventListener("click", async () => {
-      if (!pickedFile) return;
-      genBtn.disabled = true;
-      loading.style.display = "block";
-      resultImg.style.display = "none";
-
-      const converted = await convertHeic(pickedFile);
+genBtn.onclick = async ()=>{
+  try{
+    genBtn.disabled=true; resultBox.innerHTML="⏳ Обработка...";
+    const file = await ensureImageFile(pickedFile);
+    const fr = new FileReader();
+    fr.onload = async ()=>{
+      const srcB64 = fr.result.split(",")[1];
       const fd = new FormData();
-      fd.append("role", "журналист"); // временно фиксированно
-      fd.append("image", converted);
+      fd.append("role", pickedRole);
+      fd.append("image_b64", srcB64);
 
-      try {
-        const r = await fetch(API_BASE + "api/generate", { method: "POST", body: fd });
-        const t = await r.text();
-        if (!r.ok) throw new Error(t || "HTTP " + r.status);
-        const j = JSON.parse(t);
-        if (!j.imageBase64) throw new Error("AI не вернул изображение");
-        resultImg.src = "data:image/png;base64," + j.imageBase64;
-        resultImg.style.display = "block";
-      } catch (err) {
-        alert("Ошибка: " + err.message);
-      } finally {
-        genBtn.disabled = false;
-        loading.style.display = "none";
-      }
-    });
-  </script>
+      const r = await fetch(API_BASE+"api/generate",{method:"POST",body:fd});
+      const j = await r.json();
+      if(!j.imageBase64) throw new Error(j.error||"Нет изображения");
+      resultBox.innerHTML = `<img src="data:image/png;base64,${j.imageBase64}" alt="Результат"/>`;
+    };
+    fr.readAsDataURL(file);
+  }catch(e){
+    resultBox.innerHTML="❌ Ошибка: "+e.message;
+  }finally{ genBtn.disabled=false; }
+};
+</script>
 </body>
 </html>

@@ -155,7 +155,6 @@ function loadImage(src){
     i.src=src + (src.includes("?") ? "" : "?v=" + Date.now());
   });
 }
-
 const fileToB64=(f)=>new Promise((res,rej)=>{const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=()=>rej(new Error("Не удалось прочитать файл")); r.readAsDataURL(f);});
 
 function expandBox(box, scale){
@@ -235,7 +234,6 @@ async function composeFaceAndLogo(base64Gen, base64Src, bbox){
   return canvas.toDataURL("image/png");
 }
 
-// универсальная отправка + лог
 async function postGen(url, fd, note){
   const r = await fetch(url, { method:"POST", body: fd });
   const text = await r.text();
@@ -248,27 +246,28 @@ genBtn.addEventListener("click", async () => {
   try{
     if (!/^https?:\/\//i.test(API_BASE)) throw new Error("API не настроено.");
     if (!pickedFile || !pickedRole) throw new Error("Загрузите фото и выберите роль.");
+
     loading.style.display = "flex";
     genBtn.disabled = true;
 
     const srcB64 = await fileToB64(pickedFile);
 
-    // 1) detect-face
+    // detect-face
     let bbox = null;
     try {
       const fdD=new FormData(); fdD.append("image_b64", srcB64);
       const r=await fetch(API_BASE + "/api/detect-face", { method:"POST", body:fdD });
       const j=safeJsonParse(await r.text());
       bbox = j?.face?.box || null;
-      document.getElementById('debug').style.display='block';
-      document.getElementById('debug').textContent = "detect-face: " + (bbox ? "да" : "нет");
+      debugBox.style.display='block';
+      debugBox.textContent = "detect-face: " + (bbox ? "да" : "нет");
     } catch {}
 
     const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
 
     const url = API_BASE + "/api/generate";
 
-    // попытка 1 — file + mask
+    // 1) файл + маска
     let fd1 = new FormData();
     fd1.append("role", pickedRole);
     fd1.append("image", pickedFile);
@@ -276,7 +275,7 @@ genBtn.addEventListener("click", async () => {
     let r1 = await postGen(url, fd1, "gen[file+mask]");
     let data = r1.json;
 
-    // попытка 2 — b64 + mask (если 1 не ок)
+    // 2) b64 + маска (если 1 не ок)
     if (!r1.ok || !data?.imageBase64) {
       let fd2 = new FormData();
       fd2.append("role", pickedRole);
@@ -284,8 +283,9 @@ genBtn.addEventListener("click", async () => {
       if (maskB64) fd2.append("mask_b64", maskB64);
       const r2 = await postGen(url, fd2, "gen[b64+mask]");
       data = r2.json;
+
+      // 3) b64 без маски — как диагностика
       if (!r2.ok || !data?.imageBase64) {
-        // попытка 3 — b64 без маски (диагностика)
         let fd3 = new FormData();
         fd3.append("role", pickedRole);
         fd3.append("image_b64", srcB64);

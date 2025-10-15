@@ -157,13 +157,41 @@ function expandBox(box, scale){
   if (nx < 0) nx = 0; if (ny < 0) ny = 0;
   if (nx + nw > 1) nx = 1 - nw; if (ny + nh > 1) ny = 1 - nh;
   return { x: nx, y: ny, w: nw, h: nh };
-}
 async function buildHeadMaskB64(srcB64, bbox){
-  const base = await loadImage("data:image/png;base64,"+srcB64);
-  const W = base.naturalWidth || base.width;
-  const H = base.naturalHeight || base.height;
+  const img = await loadImage("data:image/png;base64,"+srcB64);
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
   const c = document.createElement("canvas"); c.width=W; c.height=H;
   const ctx = c.getContext("2d");
+
+  // Белое — можно менять (фон/одежду). Чёрное — лицо/шея/волосы — НЕ трогаем.
+  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
+
+  // Если есть bbox от детектора — эллипс вокруг головы.
+  if (bbox) {
+    const big = expandBox(bbox, 2.05);
+    const x=Math.round(big.x*W), y=Math.round(big.y*H);
+    const w=Math.round(big.w*W), h=Math.round(big.h*H);
+    const cx = x + w/2, cy = y + h*0.55;
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(cx, cy, w*0.50, h*0.68, 0, 0, 2*Math.PI); ctx.clip();
+    ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h);
+    ctx.restore();
+  } else {
+    // --- РЕЗЕРВ: нет лица — делаем разумный эллипс по центру портрета ---
+    // Подходит для «поясных» портретов: накрываем лицо, чуть шею и верх плеч.
+    const cx = W * 0.5, cy = H * 0.42;
+    const rx = W * 0.22;      // радиус по X
+    const ry = H * 0.30;      // радиус по Y (чуть вытянут вниз)
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 2*Math.PI); ctx.clip();
+    ctx.fillStyle="#000000";
+    ctx.fillRect(Math.max(0,cx-rx-4), Math.max(0,cy-ry-4), Math.min(W, 2*rx+8), Math.min(H, 2*ry+8));
+    ctx.restore();
+  }
+
+  return c.toDataURL("image/png").split(",")[1] || "";
+}
+
 
   // белым — редактируемое, чёрным — лицо/шея/часть волос (нельзя трогать)
   ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);

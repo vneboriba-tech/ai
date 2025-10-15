@@ -54,7 +54,7 @@
     footer { margin-top:auto; text-align:center; color:#111827; font-size:14px; padding:24px 0; border-top:1px solid #e5e7eb; background:#ffffff; }
     footer .sub { font-size:13px; color:#6b7280; }
 
-    .tiny { font-size:12px; color:#6b7280; display:none; white-space:pre-wrap; }
+    .tiny { font-size:12px; color:#6b7280; white-space:pre-wrap; display:none;}
   </style>
 </head>
 <body>
@@ -103,7 +103,9 @@
 
 <script>
 /* ===== CONFIG ===== */
-const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
+const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // без завершающего /
+const GEN_PATHS = ["/api/generate", "/generate"]; // на случай старого роутинга
+const FACE_PATHS = ["/api/detect-face", "/detect-face"];
 const LOGO_URL = "./logo.png";
 const MAX_FILE_MB = 12;
 
@@ -122,19 +124,41 @@ const download   = document.getElementById("downloadLink");
 const loading    = document.getElementById("loading");
 const debugBox   = document.getElementById("debug");
 
+/* ===== helpers ===== */
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function humanSize(b){return (b/1048576).toFixed(1)+' МБ';}
+function showError(msg){ errBox.style.display="block"; errBox.textContent=msg; loading.style.display="none"; }
+function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
+function clearResult(){ resultImg.removeAttribute("src"); resultBox.style.display="none"; download.style.display="none"; download.removeAttribute("href"); }
+function updateButtons(){ genBtn.disabled = !(pickedFile && pickedRole); }
+function logDebug(s){ debugBox.style.display='block'; debugBox.textContent = (debugBox.textContent?debugBox.textContent+"\n":"")+s; console.log('[debug]', s); }
+
+function safeJson(t){ try{return JSON.parse(t);}catch{return null;} }
+function loadImage(src){ return new Promise((res,rej)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=()=>rej(new Error("Не удалось загрузить: "+src)); i.src=src; }); }
+const fileToB64=(f)=>new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=()=>rej(new Error("read fail")); r.readAsDataURL(f); });
+
+async function fetchWithTimeout(url, init={}, ms=60000){
+  const c=new AbortController(); const t=setTimeout(()=>c.abort(), ms);
+  try{ return await fetch(url, {...init, signal:c.signal, mode:"cors"}); }
+  finally{ clearTimeout(t); }
+}
+async function tryPaths(base, paths, init){
+  for (const p of paths){
+    const url = base.replace(/\/+$/,'') + p;
+    try{
+      const r = await fetchWithTimeout(url, init, 60000);
+      logDebug(`${init.method||'GET'} ${p} → ${r.status}`);
+      if (r.ok) return { res:r, url };
+    }catch(e){ logDebug(`${init.method||'GET'} ${p} → ${e.message}`); }
+  }
+  return { res:null, url:null };
+}
+
 /* ===== Uploader ===== */
 dropzone.addEventListener("click", () => fileInput.click());
 dropzone.addEventListener("dragover", e => e.preventDefault());
 dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(f) onPick(f); });
 fileInput.addEventListener("change", (e) => { const f=e.target.files?.[0]; if(f) onPick(f); });
-
-function escapeHtml(s){return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));}
-function humanSize(bytes){return (bytes/1048576).toFixed(1)+' МБ';}
-function showError(msg){ errBox.style.display="block"; errBox.textContent=msg; loading.style.display="none"; }
-function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
-function clearResult(){ resultImg.removeAttribute("src"); resultBox.style.display="none"; download.style.display="none"; download.removeAttribute("href"); }
-function updateButtons(){ genBtn.disabled = !(pickedFile && pickedRole); }
-function logDebug(s){ debugBox.style.display='block'; debugBox.textContent=s; console.log('[debug]', s); }
 
 function onPick(f){
   if (!(f.type||"").startsWith("image/")) return showError("Выберите файл изображения.");
@@ -154,18 +178,7 @@ document.querySelectorAll(".role").forEach(btn => btn.addEventListener("click", 
   updateButtons();
 }));
 
-/* ===== Helpers ===== */
-function safeJson(txt){ try { return JSON.parse(txt); } catch { return null; } }
-function loadImage(src){
-  return new Promise((resolve,reject)=>{
-    const i=new Image(); i.crossOrigin="anonymous";
-    i.onload=()=>resolve(i); i.onerror=()=>reject(new Error("Не удалось загрузить: "+src));
-    i.src=src + (src.includes("?") ? "" : "?v=" + Date.now());
-  });
-}
-const fileToB64=(f)=>new Promise((res,rej)=>{const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=()=>rej(new Error("read fail")); r.readAsDataURL(f);});
-
-/* ===== Mask (расширенная) ===== */
+/* ===== mask (шире: уши+шея) ===== */
 function expandBox(box, scale){
   const cx = box.x + box.w/2, cy = box.y + box.h/2;
   let nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.35);
@@ -184,7 +197,7 @@ async function buildHeadMaskB64(srcB64, bbox){
     const big=expandBox(bbox,1.95);
     const x=Math.round(big.x*W), y=Math.round(big.y*H);
     const w=Math.round(big.w*W), h=Math.round(big.h*H);
-    const cx=x+w/2, cy=y+h*0.52; // ниже центра — захватываем шею
+    const cx=x+w/2, cy=y+h*0.52;
     ctx.save();
     ctx.beginPath(); ctx.ellipse(cx, cy, w*0.45, h*0.62, 0, 0, 2*Math.PI); ctx.clip();
     ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h);
@@ -193,34 +206,29 @@ async function buildHeadMaskB64(srcB64, bbox){
   return c.toDataURL("image/png").split(",")[1] || "";
 }
 
-/* ===== Logo overlay ===== */
-async function composeLogoOnly(base64Gen){
-  const gen = await loadImage("data:image/png;base64,"+base64Gen);
+/* ===== logo overlay ===== */
+async function composeLogoOnly(base64){
+  const gen = await loadImage("data:image/png;base64,"+base64);
   const W=gen.width, H=gen.height;
-  const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
-  const ctx=canvas.getContext("2d");
+  const c=document.createElement("canvas"); c.width=W; c.height=H;
+  const ctx=c.getContext("2d");
   ctx.drawImage(gen,0,0,W,H);
-  try {
+  try{
     const logo = await loadImage(LOGO_URL);
     const margin = Math.round(Math.min(W,H)*0.02);
-    const targetW = Math.round(W * 0.14);
-    const ratio = (logo.width||1)/(logo.height||1);
-    const targetH = Math.round(targetW/ratio);
-    const x = W - targetW - margin;
-    const y = H - targetH - margin;
-    ctx.globalAlpha = 0.95;
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    const pad = Math.round(targetW*0.08);
-    ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
-    ctx.drawImage(logo, x, y, targetW, targetH);
-    ctx.globalAlpha = 1;
-  } catch {}
-  return canvas.toDataURL("image/png");
+    const w = Math.round(W*0.14), h = Math.round(w * (logo.height/logo.width));
+    const pad = Math.round(w*0.08);
+    const x = W - w - margin, y = H - h - margin;
+    ctx.globalAlpha=.95; ctx.fillStyle="rgba(255,255,255,.92)";
+    ctx.fillRect(x-pad,y-pad,w+pad*2,h+pad*2);
+    ctx.globalAlpha=1; ctx.drawImage(logo,x,y,w,h);
+  }catch(_){}
+  return c.toDataURL("image/png");
 }
 
-/* ===== Main ===== */
+/* ===== MAIN ===== */
 genBtn.addEventListener("click", async () => {
-  clearError(); clearResult();
+  clearError(); clearResult(); debugBox.textContent=""; debugBox.style.display="block";
   try{
     if (!/^https?:\/\//i.test(API_BASE)) throw new Error("API не настроено.");
     if (!pickedFile || !pickedRole) throw new Error("Загрузите фото и выберите роль.");
@@ -228,39 +236,66 @@ genBtn.addEventListener("click", async () => {
     loading.style.display = "flex";
     genBtn.disabled = true;
 
-    // читаем исходник в b64 (для /detect-face и маски)
+    // 0) проверим, что воркер жив
+    try {
+      const ping = await fetchWithTimeout(API_BASE.replace(/\/+$/,''), {method:"GET"});
+      logDebug(`GET / → ${ping.status}`);
+    } catch(e) {
+      logDebug(`GET / → ${e.message}`);
+    }
+
+    // 1) читаем исходник (для детекта лица)
     const srcB64 = await fileToB64(pickedFile);
 
-    // bbox на воркере
-    let bbox = null;
+    // 2) детект лица (не критично)
+    let bbox=null, maskB64="";
     try {
       const fdD=new FormData(); fdD.append("image_b64", srcB64);
-      const r=await fetch(API_BASE + "/api/detect-face", { method:"POST", body:fdD });
-      const j=safeJson(await r.text());
-      bbox = j?.face?.box || null;
-    } catch(e){ logDebug("detect-face failed"); }
+      const dTry = await tryPaths(API_BASE, FACE_PATHS, { method:"POST", body:fdD });
+      if (dTry.res) {
+        const txt=await dTry.res.text(); logDebug(`detect-face body: ${txt.slice(0,160)}`);
+        const j=safeJson(txt); bbox=j?.face?.box||null;
+        if (bbox) maskB64 = await buildHeadMaskB64(srcB64, bbox);
+      } else { logDebug("detect-face: маршруты не найдены"); }
+    } catch(e){ logDebug("detect-face error: " + e.message); }
 
-    // строим маску (если нашли лицо)
-    const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
+    // 3) генерация (пробуем несколько путей и оба имени файла)
+    async function genTry(form){
+      const t1 = await tryPaths(API_BASE, GEN_PATHS, { method:"POST", body:form });
+      if (t1.res) return t1;
+      return {res:null, url:null};
+    }
 
-    // генерация (отправляем файл как есть + маску)
-    const fd = new FormData();
+    // 3a) поле 'image'
+    let fd = new FormData();
     fd.append("role", pickedRole);
     fd.append("image", pickedFile);
     if (maskB64) fd.append("mask_b64", maskB64);
+    let r = await genTry(fd);
 
-    const resp = await fetch(API_BASE + "/api/generate", { method:"POST", body: fd });
-    const raw  = await resp.text();
-    if (!resp.ok) {
-      const j = safeJson(raw);
-      const msg = j?.error || raw || ("HTTP " + resp.status);
-      const det = j?.details ? ("\n\ndetails:\n" + JSON.stringify(j.details, null, 2)) : "";
-      throw new Error(msg + det);
+    // 3b) если не нашли маршрут — поле 'file'
+    if (!r.res) {
+      let fd2 = new FormData();
+      fd2.append("role", pickedRole);
+      fd2.append("file", pickedFile);
+      if (maskB64) fd2.append("mask_b64", maskB64);
+      r = await genTry(fd2);
     }
-    const data = safeJson(raw);
-    if (!data?.imageBase64) throw new Error("Пустой ответ API");
 
-    // лого
+    if (!r.res) throw new Error("Не найден маршрут генерации: " + GEN_PATHS.join(", "));
+
+    const raw = await r.res.text();
+    logDebug(`GEN ${new URL(r.url).pathname} → ${r.res.status}\n${raw.slice(0,200)}`);
+    if (!r.res.ok) {
+      const j=safeJson(raw);
+      const msg=j?.error || raw || ("HTTP "+r.res.status);
+      const det=j?.details ? "\n\n"+JSON.stringify(j.details,null,2) : "";
+      throw new Error(msg+det);
+    }
+
+    const data = safeJson(raw) || (raw.startsWith("data:image") ? { imageBase64: raw.split(",")[1] } : null);
+    if (!data?.imageBase64) throw new Error("Ответ без imageBase64");
+
     const finalUrl = await composeLogoOnly(data.imageBase64);
     resultImg.src = finalUrl;
     resultBox.style.display = "block";

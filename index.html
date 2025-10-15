@@ -6,50 +6,42 @@
   <title>Почувствуй себя журналистом</title>
   <meta name="description" content="Мини-сайт: Журналист / Блогер / Фотограф" />
   <style>
-    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#2563eb; --border:#e5e7eb; }
-    * { box-sizing: border-box; }
-    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+    :root{--bg:#fff;--fg:#111827;--muted:#6b7280;--brand:#2563eb;--border:#e5e7eb}
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
       font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
-      min-height:100%; }
-    body { display:flex; flex-direction:column; }
-    .container { max-width:1040px; margin:0 auto; padding:24px 20px 48px; width:100%; }
-
-    header { display:flex; align-items:center; justify-content:center; padding:8px 0 24px; }
-    .title { font-size:clamp(28px,4vw,48px); font-weight:800; letter-spacing:-0.02em; margin:0; text-align:center; }
-
-    .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition:.2s; }
-    .uploader:hover { border-color:#93c5fd; background:#f0f9ff; }
-    .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.9; margin:0 auto 12px; display:block; }
-    .uploader .headline { font-size:clamp(18px,2.4vw,22px); font-weight:600; }
-    .uploader .sub { font-size:14px; color:var(--muted); margin-top:6px; }
-    .uploader .picked { margin-top:10px; font-size:14px; color:#111827; display:none; }
-    .uploader .picked strong { font-weight:800; }
-    .icon { width:16px; height:16px; vertical-align:-3px; margin-right:6px; }
-
-    .roles { margin-top:22px; }
-    .roles-title { text-align:center; font-weight:800; font-size:18px; }
-    .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:10px; }
-    @media (min-width:820px){ .roles-grid{ grid-template-columns:repeat(3,1fr);} }
-    .role { border:1px solid var(--border); border-radius:16px; padding:18px; background:#fff; cursor:pointer; transition:.15s; }
-    .role:hover { box-shadow:0 6px 18px rgba(0,0,0,.06); }
-    .role.active { border-color:#3b82f6; box-shadow:0 0 0 4px rgba(59,130,246,.2); }
-
-    .actions { margin-top:18px; display:flex; flex-direction:column; align-items:center; gap:10px; }
-    .btn { appearance:none; border:0; border-radius:14px; padding:12px 18px; background:var(--brand); color:#fff; font-weight:600; cursor:pointer; }
-    .btn:disabled { opacity:.55; cursor:not-allowed; }
-    .link { display:inline-block; border:1px solid var(--border); border-radius:14px; padding:10px 16px; text-decoration:none; color:inherit; }
-
-    .loading { display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; }
-    .spinner { width:16px; height:16px; border:2px solid #cbd5e1; border-top-color:var(--brand); border-radius:50%; animation:spin 1s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .result { margin-top:18px; text-align:center; }
-    .result img { width:100%; max-width:860px; border-radius:18px; border:1px solid var(--border); }
-
-    footer { margin-top:auto; text-align:center; color:#111827; font-size:14px; padding:24px 0; border-top:1px solid #e5e7eb; background:#fff; }
-    footer .sub { font-size:13px; color:#6b7280; }
-
-    .tiny { font-size:12px; color:#6b7280; white-space:pre-wrap; display:none; }
+      min-height:100%}
+    body{display:flex;flex-direction:column}
+    .container{max-width:1040px;margin:0 auto;padding:24px 20px 48px;width:100%}
+    header{display:flex;align-items:center;justify-content:center;padding:8px 0 24px}
+    .title{font-size:clamp(28px,4vw,48px);font-weight:800;letter-spacing:-.02em;margin:0;text-align:center}
+    .uploader{border:2px dashed var(--border);background:#f9fafb;border-radius:24px;padding:40px 24px;text-align:center;transition:.2s}
+    .uploader:hover{border-color:#93c5fd;background:#f0f9ff}
+    .uploader .logo{width:64px;height:64px;object-fit:contain;opacity:.9;margin:0 auto 12px;display:block}
+    .uploader .headline{font-size:clamp(18px,2.4vw,22px);font-weight:600}
+    .uploader .sub{font-size:14px;color:var(--muted);margin-top:6px}
+    .uploader .picked{margin-top:10px;font-size:14px;color:#111827;display:none}
+    .uploader .picked strong{font-weight:800}
+    .icon{width:16px;height:16px;vertical-align:-3px;margin-right:6px}
+    .roles{margin-top:22px}
+    .roles-title{text-align:center;font-weight:800;font-size:18px}
+    .roles-grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px}
+    @media (min-width:820px){.roles-grid{grid-template-columns:repeat(3,1fr)}}
+    .role{border:1px solid var(--border);border-radius:16px;padding:18px;background:#fff;cursor:pointer;transition:.15s}
+    .role:hover{box-shadow:0 6px 18px rgba(0,0,0,.06)}
+    .role.active{border-color:#3b82f6;box-shadow:0 0 0 4px rgba(59,130,246,.2)}
+    .actions{margin-top:18px;display:flex;flex-direction:column;align-items:center;gap:10px}
+    .btn{appearance:none;border:0;border-radius:14px;padding:12px 18px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer}
+    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .link{display:inline-block;border:1px solid var(--border);border-radius:14px;padding:10px 16px;text-decoration:none;color:inherit}
+    .loading{display:flex;align-items:center;gap:8px;font-size:14px;color:#374151}
+    .spinner{width:16px;height:16px;border:2px solid #cbd5e1;border-top-color:var(--brand);border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .result{margin-top:18px;text-align:center}
+    .result img{width:100%;max-width:860px;border-radius:18px;border:1px solid var(--border)}
+    footer{margin-top:auto;text-align:center;color:#111827;font-size:14px;padding:24px 0;border-top:1px solid #e5e7eb;background:#fff}
+    footer .sub{font-size:13px;color:#6b7280}
+    .tiny{font-size:12px;color:#6b7280;white-space:pre-wrap}
   </style>
 </head>
 <body>
@@ -75,10 +67,10 @@
 
     <div class="actions">
       <button id="genBtn" class="btn" disabled>Сгенерировать образ</button>
-      <div id="loading" class="loading" style="display:none"><span class="spinner" aria-hidden="true"></span><span>Обрабатываем…</span></div>
+      <div id="loading" class="loading" style="display:none"><span class="spinner"></span><span>Обрабатываем…</span></div>
       <a id="downloadLink" class="link" download="image.png" style="display:none">Скачать PNG</a>
       <div id="err" style="font-size:14px;color:#dc2626;display:none"></div>
-      <div id="debug" class="tiny"></div>
+      <div id="debug" class="tiny" style="display:none"></div>
     </div>
 
     <div class="result" id="resultBox" style="display:none">
@@ -97,40 +89,39 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
 const LOGO_URL = "./logo.png";
 const MAX_FILE_MB = 12;
 
-let pickedFile = null;
-let pickedRole = null;
+let pickedFile=null, pickedRole=null;
 
-const fileInput  = document.getElementById("fileInput");
-const dropzone   = document.getElementById("dropzone");
-const pickedName = document.getElementById("pickedName");
-const genBtn     = document.getElementById("genBtn");
-const errBox     = document.getElementById("err");
-const resultBox  = document.getElementById("resultBox");
-const resultImg  = document.getElementById("resultImg");
-const download   = document.getElementById("downloadLink");
-const loading    = document.getElementById("loading");
-const debugBox   = document.getElementById("debug");
+const fileInput=document.getElementById("fileInput");
+const dropzone=document.getElementById("dropzone");
+const pickedName=document.getElementById("pickedName");
+const genBtn=document.getElementById("genBtn");
+const errBox=document.getElementById("err");
+const resultBox=document.getElementById("resultBox");
+const resultImg=document.getElementById("resultImg");
+const download=document.getElementById("downloadLink");
+const loading=document.getElementById("loading");
+const debugBox=document.getElementById("debug");
 
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-function humanSize(b){return (b/1048576).toFixed(1)+' МБ';}
-function showError(m){ errBox.style.display="block"; errBox.textContent=m; loading.style.display="none"; }
-function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
-function clearResult(){ resultImg.removeAttribute("src"); resultBox.style.display="none"; download.style.display="none"; download.removeAttribute("href"); }
-function updateButtons(){ genBtn.disabled = !(pickedFile && pickedRole); }
-function logDebug(s){ debugBox.style.display='block'; debugBox.textContent=(debugBox.textContent?debugBox.textContent+"\n":"")+s; }
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function humanSize(b){return (b/1048576).toFixed(1)+' МБ'}
+function showError(m){errBox.style.display="block";errBox.textContent=m;loading.style.display="none"}
+function clearError(){errBox.style.display="none";errBox.textContent=""}
+function clearResult(){resultImg.removeAttribute("src");resultBox.style.display="none";download.style.display="none";download.removeAttribute("href")}
+function updateButtons(){genBtn.disabled=!(pickedFile&&pickedRole)}
+function logDebug(s){debugBox.style.display='block';debugBox.textContent=s}
 
 dropzone.addEventListener("click",()=>fileInput.click());
 dropzone.addEventListener("dragover",e=>e.preventDefault());
-dropzone.addEventListener("drop",e=>{e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(f) onPick(f);});
-fileInput.addEventListener("change",e=>{const f=e.target.files?.[0]; if(f) onPick(f);});
+dropzone.addEventListener("drop",e=>{e.preventDefault();const f=e.dataTransfer.files?.[0];if(f) onPick(f);});
+fileInput.addEventListener("change",e=>{const f=e.target.files?.[0];if(f) onPick(f);});
 
 function onPick(f){
   if(!(f.type||"").startsWith("image/")) return showError("Выберите файл изображения.");
-  if(f.size > MAX_FILE_MB*1048576) return showError(`Слишком большой файл (${humanSize(f.size)}).`);
+  if(f.size>MAX_FILE_MB*1048576) return showError(`Слишком большой файл (${humanSize(f.size)}).`);
   pickedFile=f;
-  pickedName.style.display="block"; pickedName.classList.add("picked");
+  pickedName.style.display="block";pickedName.classList.add("picked");
   pickedName.innerHTML=`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg><strong>Вы загрузили:</strong> ${escapeHtml(f.name)} (${humanSize(f.size)})`;
-  clearError(); updateButtons(); clearResult();
+  clearError();updateButtons();clearResult();
 }
 document.querySelectorAll(".role").forEach(btn=>btn.addEventListener("click",()=>{
   if(!pickedFile) return;
@@ -140,125 +131,53 @@ document.querySelectorAll(".role").forEach(btn=>btn.addEventListener("click",()=
   updateButtons();
 }));
 
-function safeJson(t){try{return JSON.parse(t);}catch{return null;}}
-const fileToB64=f=>new Promise((res,rej)=>{const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=()=>rej(new Error("read fail")); r.readAsDataURL(f);});
-function loadImage(src){return new Promise((res,rej)=>{const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=()=>rej(new Error("img load fail")); i.src=src;});}
+function safeJson(t){try{return JSON.parse(t)}catch{return null}}
+const fileToB64=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=()=>rej(new Error("read fail"));r.readAsDataURL(f)});
+function loadImage(src){return new Promise((res,rej)=>{const i=new Image();i.crossOrigin="anonymous";i.onload=()=>res(i);i.onerror=()=>rej(new Error("img load fail"));i.src=src})}
 
-function expandBox(box, scale){
-  const cx=box.x+box.w/2, cy=box.y+box.h/2;
-  let nw=Math.min(1,box.w*scale), nh=Math.min(1,box.h*scale*1.35);
-  let nx=cx-nw/2, ny=cy-nh/2;
-  if(nx<0)nx=0; if(ny<0)ny=0; if(nx+nw>1)nx=1-nw; if(ny+nh>1)ny=1-nh;
-  return {x:nx,y:ny,w:nw,h:nh};
-}
-async function buildHeadMaskB64(srcB64,bbox){
-  const img=await loadImage("data:image/png;base64,"+srcB64);
-  const W=img.width,H=img.height;
-  const c=document.createElement("canvas"); c.width=W; c.height=H;
-  const ctx=c.getContext("2d");
-  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);           // БЕЛОЕ = можно менять
-  if(bbox){
-    const big=expandBox(bbox,2.1);                          // чёрное — голова/шея
-    const x=Math.round(big.x*W), y=Math.round(big.y*H);
-    const w=Math.round(big.w*W), h=Math.round(big.h*H);
-    const cx=x+w/2, cy=y+h*0.55;
-    ctx.save();
-    ctx.beginPath(); ctx.ellipse(cx, cy, w*0.5, h*0.7, 0, 0, 2*Math.PI); ctx.clip();
-    ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h);
-    ctx.restore();
-  }
-  return c.toDataURL("image/png").split(",")[1]||"";
-}
+function expandBox(b,scale){const cx=b.x+b.w/2,cy=b.y+b.h/2;let nw=Math.min(1,b.w*scale),nh=Math.min(1,b.h*scale*1.35);let nx=cx-nw/2,ny=cy-nh/2;if(nx<0)nx=0;if(ny<0)ny=0;if(nx+nw>1)nx=1-nw;if(ny+nh>1)ny=1-nh;return{x:nx,y:ny,w:nw,h:nh}}
+async function buildHeadMaskB64(srcB64,bbox){const img=await loadImage("data:image/png;base64,"+srcB64);const W=img.width,H=img.height;const c=document.createElement("canvas");c.width=W;c.height=H;const ctx=c.getContext("2d");ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);if(bbox){const big=expandBox(bbox,2.1);const x=Math.round(big.x*W),y=Math.round(big.y*H),w=Math.round(big.w*W),h=Math.round(big.h*H);const cx=x+w/2,cy=y+h*0.55;ctx.save();ctx.beginPath();ctx.ellipse(cx,cy,w*0.5,h*0.7,0,0,2*Math.PI);ctx.clip();ctx.fillStyle="#000000";ctx.fillRect(x,y,w,h);ctx.restore()}return c.toDataURL("image/png").split(",")[1]||""}
 
-async function composeFaceAndLogo(base64Gen, base64Src, bbox){
-  const genImg=await loadImage("data:image/png;base64,"+base64Gen);
-  const srcImg=await loadImage("data:image/png;base64,"+base64Src);
-  const W=genImg.width,H=genImg.height;
-  const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
-  const ctx=canvas.getContext("2d");
-  ctx.drawImage(genImg,0,0,W,H);
-
-  if(bbox){
-    const big=expandBox(bbox,1.85);
-    const sx=Math.round(big.x*srcImg.width),  sy=Math.round(big.y*srcImg.height);
-    const sw=Math.round(big.w*srcImg.width),  sh=Math.round(big.h*srcImg.height);
-    const dx=Math.round(big.x*W),             dy=Math.round(big.y*H);
-    const dw=Math.round(big.w*W),             dh=Math.round(big.h*H);
-
-    const face=document.createElement("canvas"); face.width=dw; face.height=dh;
-    face.getContext("2d").drawImage(srcImg,sx,sy,sw,sh,0,0,dw,dh);
-
-    const mask=document.createElement("canvas"); mask.width=dw; mask.height=dh;
-    const m=mask.getContext("2d"), r=Math.min(dw,dh);
-    const grad=m.createRadialGradient(dw/2,dh/2,r*0.36,dw/2,dh/2,r*0.55);
-    grad.addColorStop(0,"rgba(0,0,0,1)"); grad.addColorStop(1,"rgba(0,0,0,0)");
-    m.fillStyle=grad; m.fillRect(0,0,dw,dh);
-
-    ctx.save();
-    ctx.drawImage(face,dx,dy,dw,dh);
-    ctx.globalCompositeOperation='destination-in';
-    ctx.drawImage(mask,dx,dy);
-    ctx.restore();
-  }
-
-  try{
-    const logo=await loadImage(LOGO_URL);
-    const margin=Math.round(Math.min(W,H)*0.02);
-    const w=Math.round(W*0.14), h=Math.round(w*(logo.height/logo.width));
-    const pad=Math.round(w*0.08);
-    const x=W-w-margin, y=H-h-margin;
-    ctx.globalAlpha=.95; ctx.fillStyle="rgba(255,255,255,.92)";
-    ctx.fillRect(x-pad,y-pad,w+pad*2,h+pad*2);
-    ctx.globalAlpha=1; ctx.drawImage(logo,x,y,w,h);
-  }catch(_){}
-  return canvas.toDataURL("image/png");
-}
+async function composeLogoOnly(b64){const im=await loadImage("data:image/png;base64,"+b64);const W=im.width,H=im.height;const c=document.createElement("canvas");c.width=W;c.height=H;const x=c.getContext("2d");x.drawImage(im,0,0,W,H);try{const logo=await loadImage(LOGO_URL);const m=Math.round(Math.min(W,H)*.02);const w=Math.round(W*.14);const h=Math.round(w*(logo.height/logo.width));const pad=Math.round(w*.08);const lx=W-w-m,ly=H-h-m;x.globalAlpha=.95;x.fillStyle="rgba(255,255,255,.92)";x.fillRect(lx-pad,ly-pad,w+pad*2,h+pad*2);x.globalAlpha=1;x.drawImage(logo,lx,ly,w,h)}catch{}return c.toDataURL("image/png")}
 
 genBtn.addEventListener("click", async ()=>{
-  clearError(); clearResult(); debugBox.textContent=""; debugBox.style.display="block";
+  clearError(); clearResult(); debugBox.style.display='block'; logDebug("Старт…");
   try{
     if(!/^https?:\/\//i.test(API_BASE)) throw new Error("API не настроено.");
-    if(!pickedFile || !pickedRole) throw new Error("Загрузите фото и выберите роль.");
+    if(!pickedFile||!pickedRole) throw new Error("Загрузите фото и выберите роль.");
 
     loading.style.display="flex"; genBtn.disabled=true;
-
     const srcB64 = await fileToB64(pickedFile);
 
-    // 1) детект лица на воркере
-    let bbox=null;
+    // 1) detect-face (с эвристикой на бэке)
+    let bbox=null, heuristic=false;
     try{
       const fd=new FormData(); fd.append("image_b64", srcB64);
       const r=await fetch(API_BASE+"/api/detect-face",{method:"POST",body:fd});
       const j=safeJson(await r.text());
-      bbox=j?.face?.box||null;
-      logDebug("detect-face: "+(bbox?JSON.stringify(bbox):"нет"));
-    }catch(e){ logDebug("detect error: "+e.message); }
+      bbox=j?.face?.box||null; heuristic=!!j?.face?.heuristic;
+    }catch(_){}
+    logDebug("detect-face: " + (bbox ? (heuristic ? "эвристика" : "да") : "нет"));
 
-    // 2) строим маску (если нашли bbox)
+    // 2) маска
     const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
 
-    // 3) генерация (только inpaint, если есть маска)
+    // 3) генерация
     const fd = new FormData();
     fd.append("role", pickedRole);
     fd.append("image", pickedFile);
     if(maskB64) fd.append("mask_b64", maskB64);
 
-    const resp=await fetch(API_BASE+"/api/generate",{method:"POST",body:fd});
-    const raw=await resp.text();
+    const resp = await fetch(API_BASE+"/api/generate",{method:"POST",body:fd});
+    const raw = await resp.text();
     if(!resp.ok){ const j=safeJson(raw); throw new Error((j?.error||raw||("HTTP "+resp.status))+(j?.details?("\n"+JSON.stringify(j.details,null,2)):"")); }
-    const data=safeJson(raw) || (raw.startsWith("data:image")?{imageBase64:raw.split(",")[1]}:null);
+    const data = safeJson(raw) || (raw.startsWith("data:image") ? {imageBase64:raw.split(",")[1]} : null);
     if(!data?.imageBase64) throw new Error("Пустой ответ API");
 
-    // 4) мягко возвращаем исходное лицо + лого
-    const finalUrl = bbox ? await composeFaceAndLogo(data.imageBase64, srcB64, bbox)
-                          : "data:image/png;base64,"+data.imageBase64;
-
-    resultImg.src = finalUrl;
-    resultBox.style.display="block";
-    download.href = finalUrl;
-    download.style.display="inline-block";
+    const finalUrl = await composeLogoOnly(data.imageBase64);
+    resultImg.src=finalUrl; resultBox.style.display="block"; download.href=finalUrl; download.style.display="inline-block";
   }catch(e){ showError(e.message||String(e)); }
-  finally{ loading.style.display="none"; genBtn.disabled=!(pickedFile && pickedRole); }
+  finally{ loading.style.display="none"; genBtn.disabled=!(pickedFile&&pickedRole); }
 });
 </script>
 </body>

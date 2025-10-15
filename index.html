@@ -60,7 +60,6 @@
     <div class="uploader" id="dropzone">
       <img class="logo" src="./logo.png" alt="Логотип" onerror="this.style.display='none'">
       <div class="headline">Загрузите фотографию</div>
-      <!-- ⇣ по просьбе: только перечисление форматов -->
       <div class="sub">JPG, PNG, WEBP</div>
       <div class="picked" id="pickedName"></div>
       <input id="fileInput" type="file" accept="image/*" style="display:none" />
@@ -98,17 +97,19 @@
   </footer>
 
   <script>
-    // ====== CONFIG ======
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
+    // ========= CONFIG =========
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // без хвостового /
+    // возможные пути генерации — фронт сам подберёт рабочий
+    const GEN_PATHS = ["/api/generate", "/generate", "/v1/generate", "/img/generate"];
+    const GENDER_PATHS = ["/api/gender", "/gender", "/v1/gender"];
+    const FACE_PATHS   = ["/api/detect-face", "/detect-face", "/v1/detect-face"];
     const LOGO_URL = "./logo.png";
     const MAX_FILE_MB = 12;
-    const B64_FALLBACK_LIMIT_MB = 4; // последний шанс — только для небольших файлов
 
-    // ====== State ======
+    // ========= STATE & DOM =========
     let pickedFile = null;
     let pickedRole = null;
 
-    // ====== DOM ======
     const fileInput = document.getElementById("fileInput");
     const dropzone = document.getElementById("dropzone");
     const pickedName = document.getElementById("pickedName");
@@ -120,7 +121,6 @@
     const loadingBox = document.getElementById("loading");
     const debugBox = document.getElementById("debug");
 
-    // ====== Uploader ======
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => e.preventDefault());
     dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); });
@@ -136,10 +136,9 @@
 
     function onPick(f){
       if (!(f.type||"").startsWith("image/")) return showError("Выберите файл изображения.");
-      if (f.size > MAX_FILE_MB*1048576) return showError(`Слишком большой файл (${humanSize(f.size)}). Сожмите до ~${MAX_FILE_MB} МБ.`);
+      if (f.size > MAX_FILE_MB*1048576) return showError(`Слишком большой файл (${humanSize(f.size)}).`);
       pickedFile=f;
-      pickedName.style.display="block";
-      pickedName.classList.add("picked");
+      pickedName.style.display="block"; pickedName.classList.add("picked");
       pickedName.innerHTML=`✅ <strong>Вы загрузили:</strong> ${escapeHtml(f.name)} (${humanSize(f.size)})`;
       clearError(); updateButtons(); clearResult();
     }
@@ -152,10 +151,10 @@
       updateButtons();
     }));
 
-    // ====== Helpers ======
+    // ========= HELPERS =========
     function safeJsonParse(txt){ try{return JSON.parse(txt);}catch{return null;} }
 
-    function loadImage(src){
+    async function loadImage(src){
       return new Promise((resolve,reject)=>{
         const i=new Image();
         i.crossOrigin="anonymous";
@@ -271,25 +270,27 @@
       return canvas.toDataURL("image/png");
     }
 
-    // --- сеть с таймаутом
     async function fetchWithTimeout(url, options={}, ms=45000){
-      const ctrl = new AbortController();
-      const t = setTimeout(()=>ctrl.abort(), ms);
-      try {
-        const res = await fetch(url, {...options, signal: ctrl.signal});
-        return res;
-      } finally { clearTimeout(t); }
+      const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), ms);
+      try { return await fetch(url, {...options, signal: ctrl.signal}); }
+      finally { clearTimeout(t); }
     }
 
-    // --- единый парсер ответов + вывод дебага
-    async function readResponseDebug(resp){
-      const ctype = resp.headers.get('content-type') || '';
-      const text = await resp.text();
-      logDebug(`HTTP ${resp.status} ${ctype}\n${text.slice(0,200)}`);
-      return text;
+    async function tryPaths(base, paths, init){
+      for (const p of paths) {
+        const url = base.replace(/\/+$/,'') + p;
+        try {
+          const res = await fetchWithTimeout(url, init, 45000);
+          logDebug(`${init.method||'GET'} ${p} → ${res.status}`);
+          if (res.ok) return {res, url};
+        } catch (e) {
+          logDebug(`${init.method||'GET'} ${p} → error: ${e.message}`);
+        }
+      }
+      return {res:null, url:null};
     }
 
-    // ====== Main ======
+    // ========= MAIN =========
     genBtn.addEventListener("click", async () => {
       clearError(); clearResult();
       try{
@@ -299,7 +300,7 @@
         loadingBox.style.display = "flex";
         genBtn.disabled = true;
 
-        // Подготовим лёгкие данные (для face/gender и вклейки)
+        // подготовим лёгкие данные для маски (не критично)
         let srcB64 = "";
         try {
           srcB64 = await new Promise((res,rej)=>{
@@ -310,79 +311,56 @@
           });
         } catch {}
 
-        // Детект пола (не критично)
+        // gender (опционально)
         let genderToSend = "unknown";
-        if (srcB64) {
-          try {
-            const fdG=new FormData(); fdG.append("image_b64", srcB64);
-            const rG=await fetchWithTimeout(API_BASE.replace(/\/+$/,'') + "/api/gender", { method:"POST", body:fdG }, 20000);
-            const tG=await rG.text(); logDebug(`gender → HTTP ${rG.status}\n${tG.slice(0,120)}`);
-            const jG=safeJsonParse(tG); genderToSend = jG?.gender || "unknown";
-          } catch {}
+        if (srcB64){
+          const fdG=new FormData(); fdG.append("image_b64", srcB64);
+          const gTry = await tryPaths(API_BASE, GENDER_PATHS, { method:"POST", body:fdG });
+          if (gTry.res) {
+            const txt = await gTry.res.text(); const j = safeJsonParse(txt);
+            genderToSend = j?.gender || "unknown";
+          }
         }
 
-        // bbox (не критично)
-        let bbox = null, maskB64 = "";
-        if (srcB64) {
-          try {
-            const fdD=new FormData(); fdD.append("image_b64", srcB64);
-            const rD=await fetchWithTimeout(API_BASE.replace(/\/+$/,'') + "/api/detect-face", { method:"POST", body:fdD }, 20000);
-            const tD=await rD.text(); logDebug(`detect-face → HTTP ${rD.status}\n${tD.slice(0,120)}`);
-            const jD=safeJsonParse(tD); bbox = jD?.face?.box || null;
+        // detect-face (опционально)
+        let bbox=null, maskB64="";
+        if (srcB64){
+          const fdD=new FormData(); fdD.append("image_b64", srcB64);
+          const dTry = await tryPaths(API_BASE, FACE_PATHS, { method:"POST", body:fdD });
+          if (dTry.res) {
+            const txt = await dTry.res.text(); const j = safeJsonParse(txt);
+            bbox = j?.face?.box || null;
             maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
-          } catch {}
+          }
         }
 
-        const genURL = API_BASE.replace(/\/+$/,'') + "/api/generate";
+        // ---------- GENERATE ----------
+        // Попытка 1: '/api/generate' | '/generate' | ...
+        let fd = new FormData();
+        fd.append("role", pickedRole);
+        fd.append("image", pickedFile);
+        if (genderToSend && genderToSend!=="unknown") fd.append("gender", genderToSend);
+        if (maskB64) fd.append("mask_b64", maskB64);
 
-        // --- Попытка A: image (файл) + role + gender + (mask_b64)
-        let fdA = new FormData();
-        fdA.append("role", pickedRole);
-        fdA.append("gender", genderToSend);
-        fdA.append("image", pickedFile);
-        if (maskB64) fdA.append("mask_b64", maskB64);
+        let genTry = await tryPaths(API_BASE, GEN_PATHS, { method:"POST", body: fd });
 
-        let resp = await fetchWithTimeout(genURL, { method:"POST", body: fdA }, 45000);
-        let raw = await readResponseDebug(resp);
-
-        // если не 2xx — алгоритм ретраев
-        if (!resp.ok) {
-          // Попытка B: без mask/gender (часто backend этого не ждёт)
-          let fdB = new FormData();
-          fdB.append("role", pickedRole);
-          fdB.append("image", pickedFile);
-          resp = await fetchWithTimeout(genURL, { method:"POST", body: fdB }, 45000);
-          raw = await readResponseDebug(resp);
+        // Попытка 2: если сервер ждёт поле 'file'
+        if (!genTry.res) {
+          let fd2 = new FormData();
+          fd2.append("role", pickedRole);
+          fd2.append("file", pickedFile);
+          if (genderToSend && genderToSend!=="unknown") fd2.append("gender", genderToSend);
+          if (maskB64) fd2.append("mask_b64", maskB64);
+          genTry = await tryPaths(API_BASE, GEN_PATHS, { method:"POST", body: fd2 });
         }
 
-        if (!resp.ok) {
-          // Попытка C: поле называется "file" (а не "image")
-          let fdC = new FormData();
-          fdC.append("role", pickedRole);
-          fdC.append("file", pickedFile);
-          resp = await fetchWithTimeout(genURL, { method:"POST", body: fdC }, 45000);
-          raw = await readResponseDebug(resp);
-        }
+        if (!genTry.res) throw new Error("Не найден маршрут генерации на воркере. Проверь пути: " + GEN_PATHS.join(", "));
 
-        if (!resp.ok && pickedFile.size <= B64_FALLBACK_LIMIT_MB*1048576) {
-          // Попытка D: маленькие файлы — image_b64
-          const fdD = new FormData();
-          fdD.append("role", pickedRole);
-          fdD.append("image_b64", srcB64);
-          resp = await fetchWithTimeout(genURL, { method:"POST", body: fdD }, 45000);
-          raw = await readResponseDebug(resp);
-        }
-
-        if (!resp.ok) {
-          const j = safeJsonParse(raw);
-          const msg = j?.error || j?.message || raw || ("HTTP " + resp.status);
-          throw new Error(String(msg));
-        }
-
-        // Успех
+        const raw = await genTry.res.text();
+        logDebug(`GEN OK ${new URL(genTry.url).pathname}\n${raw.slice(0,200)}`);
         let data = safeJsonParse(raw);
         if (!data && raw.startsWith("data:image")) data = { imageBase64: raw.split(",")[1] };
-        if (!data?.imageBase64) throw new Error("Пустой ответ API: imageBase64 не найден");
+        if (!data?.imageBase64) throw new Error("Ответ без imageBase64. Проверь формат ответа воркера.");
 
         // Постобработка
         const finalUrl = (bbox && maskB64)

@@ -96,166 +96,125 @@
   </footer>
 
   <script>
-    // ========= CONFIG =========
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // без хвостового /
+    // ===== CONFIG =====
+    const API = "https://media-gen-worker.vneboriba.workers.dev";
     const LOGO_URL = "./logo.png";
-    const MAX_FILE_MB = 12;
+    const MAX_MB = 12;
 
-    // ========= STATE & DOM =========
-    let pickedFile = null;
-    let pickedRole = null;
-
+    // ===== STATE & DOM =====
+    let file = null, role = null;
     const fileInput = document.getElementById("fileInput");
-    const dropzone = document.getElementById("dropzone");
-    const pickedName = document.getElementById("pickedName");
-    const genBtn = document.getElementById("genBtn");
-    const errBox = document.getElementById("err");
+    const dropzone  = document.getElementById("dropzone");
+    const picked    = document.getElementById("pickedName");
+    const genBtn    = document.getElementById("genBtn");
+    const errBox    = document.getElementById("err");
+    const loading   = document.getElementById("loading");
     const resultBox = document.getElementById("resultBox");
     const resultImg = document.getElementById("resultImg");
-    const downloadLink = document.getElementById("downloadLink");
-    const loadingBox = document.getElementById("loading");
-    const debugBox = document.getElementById("debug");
+    const download  = document.getElementById("downloadLink");
+    const debugBox  = document.getElementById("debug");
 
-    dropzone.addEventListener("click", () => fileInput.click());
-    dropzone.addEventListener("dragover", (e) => e.preventDefault());
-    dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); });
-    fileInput.addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) onPick(f); });
+    const showErr = (m)=>{ errBox.style.display="block"; errBox.textContent=m; loading.style.display="none"; };
+    const clearErr= ()=>{ errBox.style.display="none"; errBox.textContent=""; };
+    const clearRes= ()=>{ resultImg.removeAttribute("src"); resultBox.style.display="none"; download.style.display="none"; download.removeAttribute("href"); };
+    const updateBtn=()=>{ genBtn.disabled = !(file && role); };
+    const esc = (s)=>String(s).replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m]));
+    const toB64=(f)=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]||"");r.onerror=()=>rej(new Error("read fail"));r.readAsDataURL(f);});
+    const loadImg=(src)=>new Promise((res,rej)=>{const i=new Image();i.crossOrigin="anonymous";i.onload=()=>res(i);i.onerror=()=>rej(new Error("load fail"));i.src=src;});
 
-    function escapeHtml(s){return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-    function humanSize(bytes){const mb=bytes/1048576;return mb.toFixed(1)+' МБ';}
-    function showError(msg){ errBox.style.display="block"; errBox.textContent=msg; loadingBox.style.display="none"; }
-    function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
-    function clearResult(){ resultImg.removeAttribute("src"); resultBox.style.display="none"; downloadLink.style.display="none"; downloadLink.removeAttribute("href"); }
-    function updateButtons(){ genBtn.disabled = !(pickedFile && pickedRole); }
-    function logDebug(s){ debugBox.style.display='block'; debugBox.textContent = s; console.log('[debug]', s); }
-
+    dropzone.addEventListener("click",()=>fileInput.click());
+    dropzone.addEventListener("dragover",(e)=>e.preventDefault());
+    dropzone.addEventListener("drop",(e)=>{e.preventDefault();const f=e.dataTransfer.files?.[0];if(f) onPick(f);});
+    fileInput.addEventListener("change",(e)=>{const f=e.target.files?.[0];if(f) onPick(f);});
     function onPick(f){
-      if (!(f.type||"").startsWith("image/")) return showError("Выберите файл изображения.");
-      if (f.size > MAX_FILE_MB*1048576) return showError(`Слишком большой файл (${humanSize(f.size)}).`);
-      pickedFile=f;
-      pickedName.style.display="block"; pickedName.classList.add("picked");
-      pickedName.innerHTML=`✅ <strong>Вы загрузили:</strong> ${escapeHtml(f.name)} (${humanSize(f.size)})`;
-      clearError(); updateButtons(); clearResult();
+      if(!(f.type||"").startsWith("image/")) return showErr("Выберите файл изображения.");
+      if(f.size>MAX_MB*1048576) return showErr("Слишком большой файл.");
+      file=f; picked.style.display="block"; picked.classList.add("picked"); picked.innerHTML=`✅ <strong>Вы загрузили:</strong> ${esc(f.name)}`;
+      clearErr(); clearRes(); updateBtn();
     }
-
-    document.querySelectorAll(".role").forEach(btn => btn.addEventListener("click", ()=>{
-      if(!pickedFile) return;
-      pickedRole = btn.dataset.role;
-      document.querySelectorAll(".role").forEach(b=>b.classList.remove("active"));
-      btn.classList.add("active");
-      updateButtons();
+    document.querySelectorAll(".role").forEach(b=>b.addEventListener("click",()=>{
+      if(!file) return;
+      role=b.dataset.role; document.querySelectorAll(".role").forEach(x=>x.classList.remove("active")); b.classList.add("active");
+      updateBtn();
     }));
 
-    // ========= HELPERS =========
-    const safeJSON = (t)=>{try{return JSON.parse(t)}catch{return null}};
-    const loadImage = (src) => new Promise((res,rej)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=()=>rej(new Error("Не удалось загрузить: "+src)); i.src=src+(src.includes("?")?"":"?v="+Date.now()); });
-
     function expandBox(box, scale){
-      const cx = box.x + box.w/2, cy = box.y + box.h/2;
-      const nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.2);
-      let nx = cx - nw/2, ny = cy - nh/2;
-      if (nx < 0) nx = 0; if (ny < 0) ny = 0;
-      if (nx + nw > 1) nx = 1 - nw; if (ny + nh > 1) ny = 1 - nh;
-      return { x: nx, y: ny, w: nw, h: nh };
+      const cx=box.x+box.w/2, cy=box.y+box.h/2;
+      let w=Math.min(1, box.w*scale), h=Math.min(1, box.h*scale*1.2);
+      let x=cx-w/2, y=cy-h/2; if(x<0)x=0;if(y<0)y=0;if(x+w>1)x=1-w;if(y+h>1)y=1-h;
+      return {x,y,w,h};
     }
-
     async function buildHeadMaskB64(srcB64, bbox){
-      const img = await loadImage("data:image/png;base64,"+srcB64);
+      const img = await loadImg("data:image/png;base64,"+srcB64);
       const W=img.width, H=img.height;
       const c=document.createElement("canvas"); c.width=W; c.height=H;
-      const ctx=c.getContext("2d");
-      ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
-      if (bbox){
-        const big = expandBox(bbox, 1.95);
-        const x=Math.round(big.x*W), y=Math.round(big.y*H);
-        const w=Math.round(big.w*W), h=Math.round(big.h*H);
-        ctx.save();
-        ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, 2*Math.PI); ctx.clip();
-        ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h);
-        ctx.restore();
+      const ctx=c.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+      if(bbox){
+        const b=expandBox(bbox,1.95);
+        const x=Math.round(b.x*W), y=Math.round(b.y*H), w=Math.round(b.w*W), h=Math.round(b.h*H);
+        ctx.save(); ctx.beginPath(); ctx.ellipse(x+w/2,y+h/2,w/2,h/2,0,0,Math.PI*2); ctx.clip();
+        ctx.fillStyle="#000"; ctx.fillRect(x,y,w,h); ctx.restore();
       }
-      return c.toDataURL("image/png").split(",")[1] || "";
+      return c.toDataURL("image/png").split(",")[1]||"";
     }
-
-    async function composeLogo(base64Gen){
-      const gen = await loadImage("data:image/png;base64,"+base64Gen);
-      const W=gen.width, H=gen.height;
-      const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
-      const ctx=canvas.getContext("2d");
-      ctx.drawImage(gen,0,0,W,H);
-      try {
-        const logo = await loadImage(LOGO_URL);
-        const margin = Math.round(Math.min(W,H)*0.02);
-        const targetW = Math.round(W * 0.14);
-        const ratio = (logo.width||1)/(logo.height||1);
-        const targetH = Math.round(targetW/ratio);
-        const x = W - targetW - margin;
-        const y = H - targetH - margin;
-        ctx.globalAlpha = 0.95;
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
-        const pad = Math.round(targetW*0.08);
-        ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
-        ctx.drawImage(logo, x, y, targetW, targetH);
-        ctx.globalAlpha = 1;
-      } catch {}
-      return canvas.toDataURL("image/png");
-    }
-
-    async function fetchWithTimeout(url, options={}, ms=45000){
-      const ctrl = new AbortController(); const t=setTimeout(()=>ctrl.abort(),ms);
-      try { return await fetch(url,{...options,signal:ctrl.signal}); } finally { clearTimeout(t); }
-    }
-
-    // ========= MAIN =========
-    genBtn.addEventListener("click", async () => {
-      clearError(); clearResult();
+    async function composeLogo(b64){
+      const img=await loadImg("data:image/png;base64,"+b64);
+      const W=img.width,H=img.height; const c=document.createElement("canvas"); c.width=W;c.height=H; const ctx=c.getContext("2d");
+      ctx.drawImage(img,0,0,W,H);
       try{
-        if (!/^https?:\/\//i.test(API_BASE)) throw new Error("API не настроено.");
-        if (!pickedFile || !pickedRole) throw new Error("Загрузите фото и выберите роль.");
+        const logo=await loadImg(LOGO_URL);
+        const m=Math.round(Math.min(W,H)*0.02);
+        const targetW=Math.round(W*0.14);
+        const ratio=(logo.width||1)/(logo.height||1);
+        const targetH=Math.round(targetW/ratio);
+        const x=W-targetW-m, y=H-targetH-m;
+        ctx.globalAlpha=0.95; ctx.fillStyle="rgba(255,255,255,.92)";
+        const pad=Math.round(targetW*0.08);
+        ctx.fillRect(x-pad,y-pad,targetW+pad*2,targetH+pad*2);
+        ctx.drawImage(logo,x,y,targetW,targetH); ctx.globalAlpha=1;
+      }catch{}
+      return c.toDataURL("image/png");
+    }
 
-        loadingBox.style.display = "flex";
-        genBtn.disabled = true;
+    function safeJSON(t){try{return JSON.parse(t)}catch{return null}}
 
-        // читаем исходник в b64 (для детектов и маски)
-        const srcB64 = await new Promise((res,rej)=>{
-          const fr=new FileReader();
-          fr.onload=()=>res(String(fr.result).split(',')[1]||'');
-          fr.onerror=()=>rej(new Error("Не удалось прочитать файл"));
-          fr.readAsDataURL(pickedFile);
-        });
+    genBtn.addEventListener("click", async ()=>{
+      clearErr(); clearRes();
+      try{
+        if(!file||!role) throw new Error("Загрузите фото и выберите роль.");
+        loading.style.display="flex"; genBtn.disabled=true;
 
-        // bbox лица → маска (чёрная голова = «не трогать»)
-        let bbox=null, maskB64="";
+        // 1) b64 исходника (для face bbox)
+        const srcB64 = await toB64(file);
+
+        // 2) bbox головы — сервер
+        let bbox=null;
         try{
           const fdD=new FormData(); fdD.append("image_b64", srcB64);
-          const rD=await fetchWithTimeout(API_BASE+"/api/detect-face",{method:"POST",body:fdD},20000);
-          const jD=safeJSON(await rD.text()); bbox = jD?.face?.box || null;
-          if (bbox) maskB64 = await buildHeadMaskB64(srcB64, bbox);
+          const r=await fetch(API+"/api/detect-face",{method:"POST",body:fdD});
+          const j=safeJSON(await r.text()); bbox=j?.face?.box||null;
         }catch{}
 
-        // отправляем файл + маску; пол воркер определит сам
-        const fd = new FormData();
-        fd.append("role", pickedRole);
-        fd.append("image", pickedFile);
-        if (maskB64) fd.append("mask_b64", maskB64);
+        // 3) маска на клиенте
+        const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
 
-        const resp = await fetchWithTimeout(API_BASE+"/api/generate",{ method:"POST", body:fd }, 60000);
-        const raw  = await resp.text();
-        if (!resp.ok) throw new Error((safeJSON(raw)?.error)||raw||("HTTP "+resp.status));
-        const data = safeJSON(raw);
-        if (!data?.imageBase64) throw new Error("Ответ без imageBase64");
+        // 4) генерация (файл + mask_b64 + роль)
+        const fd=new FormData();
+        fd.append("role", role);
+        fd.append("image", file);
+        if(maskB64) fd.append("mask_b64", maskB64);
+        const resp=await fetch(API+"/api/generate",{method:"POST",body:fd});
+        const raw=await resp.text();
+        if(!resp.ok) throw new Error((safeJSON(raw)?.error)||raw||("HTTP "+resp.status));
+        const data=safeJSON(raw);
+        if(!data?.imageBase64) throw new Error("Пустой ответ");
 
+        // 5) лого
         const finalUrl = await composeLogo(data.imageBase64);
-        resultImg.src = finalUrl;
-        resultBox.style.display = "block";
-        downloadLink.href = finalUrl;
-        downloadLink.style.display = "inline-block";
-      } catch (e) {
-        showError(e.message || String(e));
-      } finally {
-        loadingBox.style.display = "none";
-        genBtn.disabled = !(pickedFile && pickedRole);
-      }
+        resultImg.src=finalUrl; resultBox.style.display="block";
+        download.href=finalUrl; download.style.display="inline-block";
+      }catch(e){ showErr(e.message||String(e)); }
+      finally{ loading.style.display="none"; genBtn.disabled=!(file&&role); }
     });
   </script>
 </body>

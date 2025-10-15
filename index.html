@@ -13,7 +13,7 @@
     body { display:flex; flex-direction:column; }
     .container { max-width: 1040px; margin: 0 auto; padding: 24px 20px 48px; width:100%; }
     header { display:flex; align-items:center; justify-content:center; position:relative; padding: 8px 0 24px; }
-    .title { font-size: clamp(28px, 4vw, 48px); font-weight:600; letter-spacing:-0.02em; margin:0; text-align:center; }
+    .title { font-size: clamp(28px, 4vw, 48px); font-weight:800; letter-spacing:-0.02em; margin:0; text-align:center; }
 
     .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition:.2s ease; }
     .uploader:hover { border-color:#93c5fd; background:#f0f9ff; }
@@ -21,6 +21,7 @@
     .uploader .headline { font-size: clamp(18px, 2.4vw, 22px); font-weight:600; }
     .uploader .sub { font-size:14px; color: var(--muted); margin-top:6px; }
     .uploader .picked { margin-top:10px; font-size:14px; color:#111827; display:none; }
+    .uploader .picked strong { font-weight:800; }
     .icon { width:16px; height:16px; vertical-align:-3px; margin-right:6px; }
 
     .roles { margin-top:22px; }
@@ -52,9 +53,7 @@
 <body>
   <div class="container">
     <header style="position: relative; text-align: center; margin-top: 40px;">
-      <h1 class="title" style="font-size: 3rem; font-weight: 800; color: #111827; margin-bottom: 10px;">
-        Почувствуй себя журналистом
-      </h1>
+      <h1 class="title">Почувствуй себя журналистом</h1>
     </header>
 
     <div class="uploader" id="dropzone">
@@ -99,10 +98,6 @@
   <script>
     // ========= CONFIG =========
     const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // без хвостового /
-    // возможные пути генерации — фронт сам подберёт рабочий
-    const GEN_PATHS = ["/api/generate", "/generate", "/v1/generate", "/img/generate"];
-    const GENDER_PATHS = ["/api/gender", "/gender", "/v1/gender"];
-    const FACE_PATHS   = ["/api/detect-face", "/detect-face", "/v1/detect-face"];
     const LOGO_URL = "./logo.png";
     const MAX_FILE_MB = 12;
 
@@ -152,17 +147,8 @@
     }));
 
     // ========= HELPERS =========
-    function safeJsonParse(txt){ try{return JSON.parse(txt);}catch{return null;} }
-
-    async function loadImage(src){
-      return new Promise((resolve,reject)=>{
-        const i=new Image();
-        i.crossOrigin="anonymous";
-        i.onload=()=>resolve(i);
-        i.onerror=()=>reject(new Error("Не удалось загрузить: "+src));
-        i.src=src + (src.includes("?") ? "" : "?v=" + Date.now());
-      });
-    }
+    const safeJSON = (t)=>{try{return JSON.parse(t)}catch{return null}};
+    const loadImage = (src) => new Promise((res,rej)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=()=>rej(new Error("Не удалось загрузить: "+src)); i.src=src+(src.includes("?")?"":"?v="+Date.now()); });
 
     function expandBox(box, scale){
       const cx = box.x + box.w/2, cy = box.y + box.h/2;
@@ -191,7 +177,7 @@
       return c.toDataURL("image/png").split(",")[1] || "";
     }
 
-    async function composeLogoOnly(base64Gen){
+    async function composeLogo(base64Gen){
       const gen = await loadImage("data:image/png;base64,"+base64Gen);
       const W=gen.width, H=gen.height;
       const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
@@ -215,79 +201,9 @@
       return canvas.toDataURL("image/png");
     }
 
-    async function composeFaceAndLogo(base64Gen, base64Src, bbox){
-      const genImg = await loadImage("data:image/png;base64,"+base64Gen);
-      const srcImg = await loadImage("data:image/png;base64,"+base64Src);
-      const W=genImg.width, H=genImg.height;
-      const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
-      const ctx=canvas.getContext("2d");
-      ctx.drawImage(genImg, 0, 0, W, H);
-
-      if (bbox){
-        const big = expandBox(bbox, 1.8);
-        const sx=Math.round(big.x*srcImg.width);
-        const sy=Math.round(big.y*srcImg.height);
-        const sw=Math.round(big.w*srcImg.width);
-        const sh=Math.round(big.h*srcImg.height);
-        const dx=Math.round(big.x*W);
-        const dy=Math.round(big.y*H);
-        const dw=Math.round(big.w*W);
-        const dh=Math.round(big.h*H);
-
-        const mask=document.createElement("canvas"); mask.width=dw; mask.height=dh;
-        const mctx=mask.getContext("2d");
-        const r=Math.min(dw,dh);
-        const grad=mctx.createRadialGradient(dw/2, dh/2, r*0.32, dw/2, dh/2, r*0.50);
-        grad.addColorStop(0,"rgba(0,0,0,1)"); grad.addColorStop(1,"rgba(0,0,0,0)");
-        mctx.fillStyle=grad; mctx.fillRect(0,0,dw,dh);
-
-        const face=document.createElement("canvas"); face.width=dw; face.height=dh;
-        const fctx=face.getContext("2d"); fctx.drawImage(srcImg, sx, sy, sw, sh, 0, 0, dw, dh);
-
-        ctx.save();
-        ctx.drawImage(face, dx, dy, dw, dh);
-        ctx.globalCompositeOperation='destination-in';
-        ctx.drawImage(mask, dx, dy);
-        ctx.restore();
-      }
-
-      try {
-        const logo = await loadImage(LOGO_URL);
-        const margin = Math.round(Math.min(W,H)*0.02);
-        const targetW = Math.round(W * 0.14);
-        const ratio = (logo.width||1)/(logo.height||1);
-        const targetH = Math.round(targetW/ratio);
-        const x = W - targetW - margin;
-        const y = H - targetH - margin;
-        ctx.globalAlpha = 0.95;
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
-        const pad = Math.round(targetW*0.08);
-        ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
-        ctx.drawImage(logo, x, y, targetW, targetH);
-        ctx.globalAlpha = 1;
-      } catch {}
-
-      return canvas.toDataURL("image/png");
-    }
-
     async function fetchWithTimeout(url, options={}, ms=45000){
-      const ctrl = new AbortController(); const t = setTimeout(()=>ctrl.abort(), ms);
-      try { return await fetch(url, {...options, signal: ctrl.signal}); }
-      finally { clearTimeout(t); }
-    }
-
-    async function tryPaths(base, paths, init){
-      for (const p of paths) {
-        const url = base.replace(/\/+$/,'') + p;
-        try {
-          const res = await fetchWithTimeout(url, init, 45000);
-          logDebug(`${init.method||'GET'} ${p} → ${res.status}`);
-          if (res.ok) return {res, url};
-        } catch (e) {
-          logDebug(`${init.method||'GET'} ${p} → error: ${e.message}`);
-        }
-      }
-      return {res:null, url:null};
+      const ctrl = new AbortController(); const t=setTimeout(()=>ctrl.abort(),ms);
+      try { return await fetch(url,{...options,signal:ctrl.signal}); } finally { clearTimeout(t); }
     }
 
     // ========= MAIN =========
@@ -300,73 +216,36 @@
         loadingBox.style.display = "flex";
         genBtn.disabled = true;
 
-        // подготовим лёгкие данные для маски (не критично)
-        let srcB64 = "";
-        try {
-          srcB64 = await new Promise((res,rej)=>{
-            const fr=new FileReader();
-            fr.onload=()=>res(String(fr.result).split(',')[1]||'');
-            fr.onerror=()=>rej(new Error("Не удалось прочитать файл"));
-            fr.readAsDataURL(pickedFile);
-          });
-        } catch {}
+        // читаем исходник в b64 (для детектов и маски)
+        const srcB64 = await new Promise((res,rej)=>{
+          const fr=new FileReader();
+          fr.onload=()=>res(String(fr.result).split(',')[1]||'');
+          fr.onerror=()=>rej(new Error("Не удалось прочитать файл"));
+          fr.readAsDataURL(pickedFile);
+        });
 
-        // gender (опционально)
-        let genderToSend = "unknown";
-        if (srcB64){
-          const fdG=new FormData(); fdG.append("image_b64", srcB64);
-          const gTry = await tryPaths(API_BASE, GENDER_PATHS, { method:"POST", body:fdG });
-          if (gTry.res) {
-            const txt = await gTry.res.text(); const j = safeJsonParse(txt);
-            genderToSend = j?.gender || "unknown";
-          }
-        }
-
-        // detect-face (опционально)
+        // bbox лица → маска (чёрная голова = «не трогать»)
         let bbox=null, maskB64="";
-        if (srcB64){
+        try{
           const fdD=new FormData(); fdD.append("image_b64", srcB64);
-          const dTry = await tryPaths(API_BASE, FACE_PATHS, { method:"POST", body:fdD });
-          if (dTry.res) {
-            const txt = await dTry.res.text(); const j = safeJsonParse(txt);
-            bbox = j?.face?.box || null;
-            maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
-          }
-        }
+          const rD=await fetchWithTimeout(API_BASE+"/api/detect-face",{method:"POST",body:fdD},20000);
+          const jD=safeJSON(await rD.text()); bbox = jD?.face?.box || null;
+          if (bbox) maskB64 = await buildHeadMaskB64(srcB64, bbox);
+        }catch{}
 
-        // ---------- GENERATE ----------
-        // Попытка 1: '/api/generate' | '/generate' | ...
-        let fd = new FormData();
+        // отправляем файл + маску; пол воркер определит сам
+        const fd = new FormData();
         fd.append("role", pickedRole);
         fd.append("image", pickedFile);
-        if (genderToSend && genderToSend!=="unknown") fd.append("gender", genderToSend);
         if (maskB64) fd.append("mask_b64", maskB64);
 
-        let genTry = await tryPaths(API_BASE, GEN_PATHS, { method:"POST", body: fd });
+        const resp = await fetchWithTimeout(API_BASE+"/api/generate",{ method:"POST", body:fd }, 60000);
+        const raw  = await resp.text();
+        if (!resp.ok) throw new Error((safeJSON(raw)?.error)||raw||("HTTP "+resp.status));
+        const data = safeJSON(raw);
+        if (!data?.imageBase64) throw new Error("Ответ без imageBase64");
 
-        // Попытка 2: если сервер ждёт поле 'file'
-        if (!genTry.res) {
-          let fd2 = new FormData();
-          fd2.append("role", pickedRole);
-          fd2.append("file", pickedFile);
-          if (genderToSend && genderToSend!=="unknown") fd2.append("gender", genderToSend);
-          if (maskB64) fd2.append("mask_b64", maskB64);
-          genTry = await tryPaths(API_BASE, GEN_PATHS, { method:"POST", body: fd2 });
-        }
-
-        if (!genTry.res) throw new Error("Не найден маршрут генерации на воркере. Проверь пути: " + GEN_PATHS.join(", "));
-
-        const raw = await genTry.res.text();
-        logDebug(`GEN OK ${new URL(genTry.url).pathname}\n${raw.slice(0,200)}`);
-        let data = safeJsonParse(raw);
-        if (!data && raw.startsWith("data:image")) data = { imageBase64: raw.split(",")[1] };
-        if (!data?.imageBase64) throw new Error("Ответ без imageBase64. Проверь формат ответа воркера.");
-
-        // Постобработка
-        const finalUrl = (bbox && maskB64)
-          ? await composeFaceAndLogo(data.imageBase64, srcB64, bbox)
-          : await composeLogoOnly(data.imageBase64);
-
+        const finalUrl = await composeLogo(data.imageBase64);
         resultImg.src = finalUrl;
         resultBox.style.display = "block";
         downloadLink.href = finalUrl;

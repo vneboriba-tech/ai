@@ -25,6 +25,7 @@
     .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.95; display:block; margin:0 auto 12px; }
     .uploader .headline { font-size:18px; font-weight:700; }
     .uploader .sub { font-size:14px; color:var(--muted); margin-top:6px; }
+
     .picked { font-size:14px; margin-top:10px; color:#111827; }
 
     .roles-title { text-align:center; font-weight:800; margin-top:24px; }
@@ -39,6 +40,7 @@
     .actions { margin-top:20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
     .btn { border:0; border-radius:14px; padding:12px 20px; background:var(--brand); color:#fff; font-weight:700; cursor:pointer; }
     .btn:disabled { opacity:.6; cursor:not-allowed; }
+
     .loading { display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; }
     .spinner { width:16px; height:16px; border:2px solid #cbd5e1; border-top-color:var(--brand); border-radius:50%; animation:spin 1s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
@@ -48,11 +50,14 @@
 
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
     .err { color:#dc2626; font-size:14px; display:none; white-space:pre-wrap; }
+    .tiny { color:#6b7280; font-size:12px; display:none; white-space:pre-wrap; }
   </style>
 </head>
 <body>
   <div class="container">
-    <header><h1 class="title">Почувствуй себя журналистом</h1></header>
+    <header>
+      <h1 class="title">Почувствуй себя журналистом</h1>
+    </header>
 
     <div class="uploader" id="dropzone">
       <img class="logo" src="logo.png?v=1" alt="Логотип" onerror="this.style.display='none'">
@@ -73,9 +78,10 @@
 
     <div class="actions">
       <button id="genBtn" class="btn" disabled>Сгенерировать образ</button>
-      <div id="loading" class="loading" style="display:none"><span class="spinner"></span><span>Обрабатываем…</span></div>
+      <div id="loading" class="loading" style="display:none"><span class="spinner"></span> <span>Обрабатываем…</span></div>
       <a id="download" class="btn" download="result.png" style="display:none;background:#10b981;">Скачать PNG</a>
       <div id="error" class="err"></div>
+      <div id="debug" class="tiny"></div>
     </div>
 
     <div class="result" id="resultBox" style="display:none;">
@@ -87,7 +93,8 @@
 
 <script>
 const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
-const LOGO_URL = "logo.png?v=1"; // логотип рядом с index.html
+const LOGO_URL = "logo.png?v=1";
+const MAX_MB = 12;
 
 let file = null, role = null;
 
@@ -100,6 +107,7 @@ const resultBox = document.getElementById('resultBox');
 const resultImg = document.getElementById('resultImg');
 const download = document.getElementById('download');
 const err = document.getElementById('error');
+const dbg = document.getElementById('debug');
 
 drop.addEventListener('click', ()=>input.click());
 input.addEventListener('change', e => onFile(e.target.files?.[0]));
@@ -108,8 +116,8 @@ drop.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfe
 
 function onFile(f){
   if (!f) return;
-  if (!f.type.startsWith('image/')) return showErr("Нужен файл изображения.");
-  if (f.size > 12*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
+  if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
+  if (f.size > MAX_MB*1048576) return showErr("Файл слишком большой, до 12 МБ.");
   file=f;
   picked.textContent=`Вы выбрали: ${f.name}`;
   btn.disabled = !role;
@@ -124,7 +132,7 @@ document.querySelectorAll('.role').forEach(b=>b.addEventListener('click',()=>{
 
 function showErr(m){ err.style.display='block'; err.textContent=m; }
 function hideErr(){ err.style.display='none'; }
-function showLoading(s){ loading.style.display=s?'flex':'none'; }
+function log(s){ dbg.style.display='block'; dbg.textContent = s; console.log("[debug]", s); }
 
 function fileToB64(f){
   return new Promise((res,rej)=>{
@@ -137,44 +145,42 @@ function fileToB64(f){
 function loadImage(src){
   return new Promise((resolve,reject)=>{
     const img=new Image();
-    // ВАЖНО: НЕ ставим crossOrigin — лого локальное, тот же хост
     img.onload=()=>resolve(img);
     img.onerror=()=>reject(new Error("Не удалось загрузить: "+src));
-    img.src = src.includes("data:") || src.includes("blob:") ? src : (src + (src.includes("?")?"":"?v="+Date.now()));
+    img.src = src.includes("?") ? src : (src + "?v=" + Date.now());
   });
 }
-// строим маску: чёрное — НЕ трогать лицо, белое — можно менять
 function expandBox(box, scale){
   const cx = box.x + box.w/2, cy = box.y + box.h/2;
-  let nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.30);
+  let nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.35);
   let nx = cx - nw/2, ny = cy - nh/2;
   if (nx < 0) nx = 0; if (ny < 0) ny = 0;
   if (nx + nw > 1) nx = 1 - nw; if (ny + nh > 1) ny = 1 - nh;
   return { x: nx, y: ny, w: nw, h: nh };
 }
 async function buildHeadMaskB64(srcB64, bbox){
-  const img = await loadImage("data:image/png;base64,"+srcB64);
-  const W=img.width, H=img.height;
-  const c=document.createElement("canvas"); c.width=W; c.height=H;
-  const ctx=c.getContext("2d");
-  // по умолчанию всё редактируемо (белое)
+  const base = await loadImage("data:image/png;base64,"+srcB64);
+  const W = base.naturalWidth || base.width;
+  const H = base.naturalHeight || base.height;
+  const c = document.createElement("canvas"); c.width=W; c.height=H;
+  const ctx = c.getContext("2d");
+
+  // белым — редактируемое, чёрным — лицо/шея/часть волос (нельзя трогать)
   ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
-  if (bbox){
-    const big = expandBox(bbox, 1.9);
+  if (bbox) {
+    const big = expandBox(bbox, 2.05);
     const x=Math.round(big.x*W), y=Math.round(big.y*H);
     const w=Math.round(big.w*W), h=Math.round(big.h*H);
-    // чёрным закрываем голову/лицо+немного шеи
+    const cx = x + w/2, cy = y + h*0.55;
     ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(x+w/2, y+h*0.52, w*0.46, h*0.62, 0, 0, 2*Math.PI);
-    ctx.clip();
-    ctx.fillStyle="#000000";
-    ctx.fillRect(x,y,w,h);
+    ctx.beginPath(); ctx.ellipse(cx, cy, w*0.50, h*0.68, 0, 0, 2*Math.PI); ctx.clip();
+    ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h);
     ctx.restore();
   }
   return c.toDataURL("image/png").split(",")[1] || "";
 }
 
+// логотип в правом нижнем углу (с белой подложкой)
 async function addLogoToBase64(b64){
   try{
     const base = await loadImage("data:image/png;base64," + b64);
@@ -195,67 +201,69 @@ async function addLogoToBase64(b64){
     const y = H - targetH - margin;
 
     const pad = Math.round(targetW * 0.10);
-    const bx = x - pad, by = y - pad, bw = targetW + pad*2, bh = targetH + pad*2;
-    const r = Math.round(Math.min(bw, bh) * 0.18);
+    const bx = x - pad, by = y - pad, bw = targetW + pad*2, bh = targetH + pad*2, r = Math.round(Math.min(bw,bh)*0.18);
     ctx.save();
-    roundRect(ctx, bx, by, bw, bh, r);
+    ctx.beginPath();
+    ctx.moveTo(bx+r, by);
+    ctx.arcTo(bx+bw, by,     bx+bw, by+bh, r);
+    ctx.arcTo(bx+bw, by+bh,  bx,    by+bh, r);
+    ctx.arcTo(bx,    by+bh,  bx,    by,    r);
+    ctx.arcTo(bx,    by,     bx+bw, by,    r);
+    ctx.closePath();
     ctx.fillStyle = "rgba(255,255,255,0.94)";
-    ctx.fill(); ctx.restore();
+    ctx.fill();
+    ctx.restore();
 
+    ctx.globalAlpha = 0.98;
     ctx.drawImage(logo, x, y, targetW, targetH);
+    ctx.globalAlpha = 1;
+
     return c.toDataURL('image/png');
   }catch(e){
     console.warn("Logo overlay failed:", e.message);
     return "data:image/png;base64," + b64;
   }
 }
-function roundRect(ctx, x, y, w, h, r){
-  r = Math.min(r, w/2, h/2);
-  ctx.beginPath();
-  ctx.moveTo(x+r, y);
-  ctx.arcTo(x+w, y, x+w, y+h, r);
-  ctx.arcTo(x+w, y+h, x, y+h, r);
-  ctx.arcTo(x, y+h, x, y, r);
-  ctx.arcTo(x, y, x+w, y, r);
-  ctx.closePath();
-}
 
 btn.addEventListener('click', async ()=>{
-  hideErr(); showLoading(true); btn.disabled=true;
-  resultBox.style.display='none'; resultImg.removeAttribute('src'); download.style.display='none';
-
+  hideErr(); loading.style.display='flex'; btn.disabled=true;
+  resultBox.style.display='none'; resultImg.removeAttribute('src'); download.style.display='none'; dbg.style.display='none';
   try{
     if (!/^https?:\/\//i.test(API_BASE)) throw new Error("API не настроено.");
     if (!file || !role) throw new Error("Загрузите фото и выберите роль.");
 
     const b64 = await fileToB64(file);
 
-    // 1) детект лица → 2) маска
-    let bbox=null, maskB64="";
+    // 1) запросим bbox
+    let bbox = null;
     try{
-      const fdD=new FormData(); fdD.append("image_b64", b64);
-      const rD=await fetch(API_BASE + "/api/detect-face", { method:"POST", body:fdD });
-      const jD=await rD.json();
+      const fdD = new FormData(); fdD.append("image_b64", b64);
+      const rD = await fetch(API_BASE + "/api/detect-face", { method:"POST", body:fdD });
+      const tD = await rD.text(); const jD = JSON.parse(tD);
       bbox = jD?.face?.box || null;
-      if (bbox) maskB64 = await buildHeadMaskB64(b64, bbox);
-    }catch(e){ /* тихий фолбэк — можно без маски, но хуже */ }
+      log("detect-face: " + (bbox ? "ok" : "no face"));
+    }catch(e){ log("detect-face failed: " + (e.message||e)); }
 
-    // 3) генерация (с маской, если есть)
+    // 2) построим маску
+    const maskB64 = bbox ? await buildHeadMaskB64(b64, bbox) : "";
+
+    // 3) отправим на генерацию
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", b64);
     if (maskB64) fd.append("mask_b64", maskB64);
 
-    const resp = await fetch(API_BASE + "/api/generate", { method:"POST", body: fd });
-    const raw  = await resp.text();
-    if (!resp.ok) {
+    const rG = await fetch(API_BASE + "/api/generate", { method:"POST", body: fd });
+    const raw = await rG.text();
+    if (!rG.ok){
       let msg = "Ошибка генерации";
-      try { const j = JSON.parse(raw); msg = j.error || msg; } catch {}
+      try { const j = JSON.parse(raw); msg = (j.error || msg) + (j.hint ? (" — " + j.hint) : ""); } catch {}
       throw new Error(msg);
     }
     const data = JSON.parse(raw);
     if (!data?.imageBase64) throw new Error("Пустой ответ API");
 
+    // 4) наложим лого
     const finalUrl = await addLogoToBase64(data.imageBase64);
 
     resultImg.src = finalUrl;
@@ -265,7 +273,7 @@ btn.addEventListener('click', async ()=>{
   }catch(e){
     showErr(e.message || String(e));
   }finally{
-    showLoading(false);
+    loading.style.display='none';
     btn.disabled=false;
   }
 });

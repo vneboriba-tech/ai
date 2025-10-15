@@ -98,7 +98,7 @@
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
     /* ====== CONFIG ====== */
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // Cloudflare Worker
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/";
     const LOGO_URL = "./logo.png";
 
     /* ====== State ====== */
@@ -115,7 +115,7 @@
     const downloadLink = document.getElementById("downloadLink");
     const loadingBox = document.getElementById("loading");
 
-    /* ====== Uploader ====== */
+    /* ====== UI ====== */
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => e.preventDefault());
     dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); });
@@ -128,7 +128,7 @@
     function showError(msg){ errBox.style.display="block"; errBox.textContent=String(msg).slice(0,240)+"… (подробности в консоли)"; loadingBox.style.display="none"; }
     function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
 
-    /* ====== HEIC → JPEG, fallback на «сырые» файлы ====== */
+    /* ====== HEIC fallback ====== */
     async function ensureDisplayableImageOrNull(file){
       const type=(file.type||"").toLowerCase(); const name=(file.name||"").toLowerCase();
       const isHeic = type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
@@ -141,15 +141,48 @@
     }
 
     /* ====== Helpers ====== */
+    function normalizeB64(b64){
+      let s = String(b64||"").replace(/\s+/g,'').replace(/-/g,'+').replace(/_/g,'/');
+      const pad = s.length % 4;
+      if (pad === 2) s += '==';
+      else if (pad === 3) s += '=';
+      else if (pad !== 0) s += '===';
+      return s;
+    }
+    function b64ToBlobUrl(b64, mime){
+      const s = atob(normalizeB64(b64));
+      const u8 = new Uint8Array(s.length);
+      for (let i=0;i<s.length;i++) u8[i] = s.charCodeAt(i);
+      const blob = new Blob([u8], { type: mime || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      return { url, revoke: () => URL.revokeObjectURL(url) };
+    }
+    function detectMimeFromB64(b64){
+      try{
+        const bin = atob(normalizeB64(b64).slice(0,50));
+        const bytes = Array.from(bin).map(c=>c.charCodeAt(0));
+        if (bytes[0]===0xFF && bytes[1]===0xD8 && bytes[2]===0xFF) return "image/jpeg";
+        if (bytes[0]===0x89 && bytes[1]===0x50 && bytes[2]===0x4E && bytes[3]===0x47) return "image/png";
+        if (bytes[0]===0x52 && bytes[1]===0x49 && bytes[2]===0x46 && bytes[3]===0x46) return "image/webp";
+      }catch(_){}
+      return "image/png";
+    }
+    function abToB64(ab){
+      const u8 = new Uint8Array(ab);
+      let s = ""; for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]);
+      return btoa(s);
+    }
     function loadImage(src){
       return new Promise((resolve,reject)=>{
         const i=new Image();
         i.crossOrigin="anonymous";
         i.onload=()=>resolve(i);
-        i.onerror=()=>reject(new Error("Не удалось загрузить изображение"));
-        i.src=src + (src.includes("?") ? "" : "?v=" + Date.now());
+        i.onerror=(e)=>reject(new Error("Не удалось загрузить изображение"));
+        i.src=src;
       });
     }
+
+    /* ====== Inpaint-mask (чёрное — не редактировать) ====== */
     function expandBox(box, scale){
       const cx = box.x + box.w/2, cy = box.y + box.h/2;
       const nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.2);
@@ -158,29 +191,9 @@
       if (nx + nw > 1) nx = 1 - nw; if (ny + nh > 1) ny = 1 - nh;
       return { x: nx, y: ny, w: nw, h: nh };
     }
-    function abToB64(ab){
-      const u8 = new Uint8Array(ab);
-      let s = ""; for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]);
-      return btoa(s);
-    }
-    function detectMimeFromB64(b64){
-      // первые байты
-      try{
-        const bin = atob((b64||"").slice(0,50));
-        const bytes = Array.from(bin).map(c=>c.charCodeAt(0));
-        // JPEG FF D8 FF
-        if (bytes[0]===0xFF && bytes[1]===0xD8 && bytes[2]===0xFF) return "image/jpeg";
-        // PNG 89 50 4E 47 0D 0A 1A 0A
-        if (bytes[0]===0x89 && bytes[1]===0x50 && bytes[2]===0x4E && bytes[3]===0x47) return "image/png";
-        // WebP "RIFF....WEBP"
-        if (bytes[0]===0x52 && bytes[1]===0x49 && bytes[2]===0x46 && bytes[3]===0x46) return "image/webp";
-      }catch(_){}
-      return "image/png"; // безопасный дефолт
-    }
-
-    /* ====== Маска inpainting: ЧЕРНОЕ — не редактировать (голова) ====== */
     async function buildHeadMaskB64(srcB64, bbox){
-      const img = await loadImage("data:image/png;base64,"+srcB64);
+      const {url, revoke} = b64ToBlobUrl(srcB64, "image/png");
+      const img = await loadImage(url);
       const W=img.width, H=img.height;
       const c=document.createElement("canvas"); c.width=W; c.height=H;
       const ctx=c.getContext("2d");
@@ -194,17 +207,22 @@
         ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h);
         ctx.restore();
       }
+      revoke();
       return c.toDataURL("image/png").split(",")[1] || "";
     }
 
     /* ====== ЛОГО ====== */
     async function composeLogoOnly(base64Gen){
+      base64Gen = normalizeB64(base64Gen);
       const mime = detectMimeFromB64(base64Gen);
-      const genImg = await loadImage(`data:${mime};base64,`+base64Gen);
+      const {url, revoke} = b64ToBlobUrl(base64Gen, mime);
+      const genImg = await loadImage(url);
       const W=genImg.width, H=genImg.height;
+
       const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
       const ctx=canvas.getContext("2d");
       ctx.drawImage(genImg, 0, 0, W, H);
+      revoke();
 
       try {
         const logo = await loadImage(LOGO_URL);
@@ -221,13 +239,20 @@
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
       } catch(e) { console.warn("Логотип не добавлен:", e); }
+
       return canvas.toDataURL("image/png");
     }
 
     async function composeFaceAndLogo(base64Gen, base64Src, bbox){
+      base64Gen = normalizeB64(base64Gen);
+      base64Src = normalizeB64(base64Src);
+
       const mime = detectMimeFromB64(base64Gen);
-      const genImg = await loadImage(`data:${mime};base64,`+base64Gen);
-      const srcImg = await loadImage("data:image/png;base64,"+base64Src);
+      const genURL = b64ToBlobUrl(base64Gen, mime);
+      const srcURL = b64ToBlobUrl(base64Src, "image/png");
+
+      const genImg = await loadImage(genURL.url);
+      const srcImg = await loadImage(srcURL.url);
 
       const W=genImg.width, H=genImg.height;
       const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
@@ -262,6 +287,8 @@
         ctx.restore();
       }
 
+      genURL.revoke(); srcURL.revoke();
+
       try {
         const logo = await loadImage(LOGO_URL);
         const margin = Math.round(Math.min(W,H)*0.02);
@@ -277,46 +304,40 @@
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
       } catch(e) { console.warn("Логотип не добавлен:", e); }
+
       return canvas.toDataURL("image/png");
     }
 
-    /* ====== УСТОЙЧИВЫЙ ПАРСЕР ОТВЕТА ====== */
+    /* ====== Парсер ответа воркера ====== */
     async function parseImageResponse(resp) {
       const ct = (resp.headers.get('content-type') || '').toLowerCase();
 
-      // 1) Бинарное изображение
       if (ct.startsWith('image/')) {
         const ab = await resp.arrayBuffer();
         return abToB64(ab);
       }
-
-      // 2) Текстовые варианты
       const text = await resp.text();
 
-      // JSON
       try {
         const j = JSON.parse(text);
         const val = j?.imageBase64 || j?.result?.image_base64 || j?.image || j?.result?.image;
-        if (val && typeof val === 'string') return val.replace(/^data:image\/[a-z0-9.+-]+;base64,?/i,'');
+        if (val && typeof val === 'string') return normalizeB64(val.replace(/^data:image\/[a-z0-9.+-]+;base64,?/i,''));
       } catch (_) {}
 
-      // dataURL
       if (text.startsWith('data:image/')) {
         const b64 = text.split(',')[1] || '';
-        if (b64.length > 64) return b64;
+        if (b64.length > 64) return normalizeB64(b64);
       }
 
-      // «Голая» base64 (допускаем URL-safe - и _)
       const compact = text.replace(/\s+/g,'');
       const base64ish = /^[A-Za-z0-9+/_=-]+$/.test(compact) && compact.length > 200;
-      if (base64ish) return compact;
+      if (base64ish) return normalizeB64(compact);
 
-      // Ничего не подошло
       throw new Error(text || ('HTTP '+resp.status));
     }
 
-    function logAndShow(e, context){
-      console.error('[UI error]', context || '', e);
+    function logAndShow(e, where){
+      console.error('[UI error]', where || '', e);
       showError(e?.message || String(e));
     }
 
@@ -331,7 +352,6 @@
 
         const maybeDisplayable = await ensureDisplayableImageOrNull(pickedFile);
 
-        // ВЕТКА A: декодируемый локально файл → маска, авто-пол, склейка лица
         if (maybeDisplayable) {
           const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(maybeDisplayable); });
 
@@ -376,7 +396,7 @@
           downloadLink.href = finalUrl;
           downloadLink.style.display = "inline-block";
         } else {
-          // ВЕТКА B: HEIC не декодируется локально → на сервер «как есть»
+          // HEIC raw → сервер
           const fd = new FormData();
           fd.append("role", document.querySelector('.role.active')?.dataset.role || pickedRole);
           fd.append("image", pickedFile);
@@ -403,7 +423,7 @@
       }
     });
 
-    // роль-пикер
+    // выбор роли
     document.querySelectorAll(".role").forEach(btn => {
       btn.addEventListener("click", () => {
         if (!pickedFile) return;

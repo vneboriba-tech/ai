@@ -2,147 +2,219 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>AI Outfit Generator</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Почувствуй себя журналистом</title>
   <style>
-    body {
-      font-family: "Inter", sans-serif;
-      background: #fafafa;
-      color: #222;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      min-height: 100vh;
-      margin: 0;
-      padding: 40px;
-    }
-    h1 {
-      color: #800000;
-      margin-bottom: 20px;
-    }
-    #uploader {
-      margin: 20px 0;
-      padding: 20px;
-      border: 2px dashed #ccc;
-      border-radius: 10px;
-      background: white;
-      text-align: center;
-      width: 400px;
-    }
-    input[type="file"] {
-      display: none;
-    }
-    label[for="fileInput"] {
-      background: #800000;
-      color: white;
-      padding: 10px 20px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 500;
-    }
-    select, button {
-      margin: 10px;
-      padding: 10px 15px;
-      border-radius: 6px;
-      border: 1px solid #ddd;
-      font-size: 15px;
-    }
-    button {
-      background: #800000;
-      color: white;
-      border: none;
-      cursor: pointer;
-    }
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    img {
-      margin-top: 20px;
-      max-width: 400px;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    #status {
-      margin-top: 20px;
-      color: #555;
-      font-size: 14px;
-    }
+    :root { --bg:#fafafa; --fg:#111; --brand:#800000; --muted:#6b7280; --border:#e5e7eb; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial; }
+    body { display:flex; flex-direction:column; align-items:center; padding:32px 16px; }
+    h1 { margin:4px 0 16px; color:var(--brand); }
+    .card { width:100%; max-width: 860px; background:#fff; border:1px solid var(--border); border-radius:16px; padding:20px; }
+    .uploader { border:2px dashed var(--border); border-radius:16px; padding:28px; text-align:center; background:#fff; }
+    .uploader .picked { margin-top:10px; font-size:14px; color:#111827; display:none; }
+    .controls { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px; }
+    .btn { appearance:none; border:0; border-radius:12px; padding:12px 16px; background:var(--brand); color:#fff; font-weight:600; cursor:pointer; }
+    .btn:disabled { opacity:.55; cursor:not-allowed; }
+    select { padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:#fff; }
+    .status { margin-top:12px; color:#374151; font-size:14px; min-height:22px; text-align:center; }
+    .result { margin-top:18px; text-align:center; }
+    .result img { width:100%; max-width:720px; border-radius:14px; border:1px solid var(--border); }
   </style>
 </head>
 <body>
-  <h1>AI Outfit Generator</h1>
+  <h1>Почувствуй себя журналистом</h1>
 
-  <div id="uploader">
-    <input type="file" id="fileInput" accept="image/*,image/heic" />
-    <label for="fileInput">Загрузить фото</label>
-    <br><br>
-    <select id="role">
-      <option value="журналист">Журналист</option>
-      <option value="блогер">Блогер</option>
-      <option value="фотограф">Фотограф</option>
-    </select>
-    <br>
-    <button id="generateBtn" disabled>Сгенерировать образ</button>
+  <div class="card">
+    <div class="uploader" id="dropzone">
+      <img src="./logo.png" alt="Логотип" style="width:64px;height:64px;opacity:.9;display:block;margin:0 auto 10px" onerror="this.style.display='none'">
+      <div style="font-weight:700">Загрузите фотографию</div>
+      <div style="font-size:13px;color:var(--muted)">Поддерживаются JPG, PNG, WEBP, HEIC</div>
+
+      <div class="picked" id="pickedName"></div>
+      <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" style="display:none" />
+      <div class="controls">
+        <button class="btn" id="pickBtn" type="button">Выбрать файл</button>
+        <select id="role">
+          <option value="журналист">Журналист</option>
+          <option value="блогер">Блогер</option>
+          <option value="фотограф">Фотограф</option>
+        </select>
+        <button class="btn" id="genBtn" type="button" disabled>Сгенерировать образ</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="result" id="resultBox" style="display:none">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:6px">Результат</div>
+      <img id="resultImg" alt="Результат" />
+      <div style="margin-top:10px">
+        <a id="downloadLink" class="btn" download="image.png" style="text-decoration:none;display:inline-block">Скачать PNG</a>
+      </div>
+    </div>
   </div>
 
-  <div id="status"></div>
-  <img id="resultImage" style="display:none;" />
-
+  <!-- HEIC -> JPEG converter -->
+  <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
-    const fileInput = document.getElementById("fileInput");
-    const generateBtn = document.getElementById("generateBtn");
-    const resultImage = document.getElementById("resultImage");
-    const statusEl = document.getElementById("status");
-    const roleSelect = document.getElementById("role");
+    /* ====== CONFIG ====== */
+    // Укажи ровно твой домен воркера (без хвостового /)
+    // Примеры: "https://media-gen-worker.vneboriba.workers.dev" или свой кастомный домен
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
+    const LOGO_URL = "./logo.png";
 
-    let selectedFile = null;
+    /* ====== State ====== */
+    let pickedFile = null;
 
-    fileInput.addEventListener("change", (e) => {
-      selectedFile = e.target.files[0];
-      generateBtn.disabled = !selectedFile;
-      resultImage.style.display = "none";
-      statusEl.textContent = "";
-    });
+    const fileInput   = document.getElementById("fileInput");
+    const pickBtn     = document.getElementById("pickBtn");
+    const dropzone    = document.getElementById("dropzone");
+    const pickedName  = document.getElementById("pickedName");
+    const roleSelect  = document.getElementById("role");
+    const genBtn      = document.getElementById("genBtn");
+    const statusEl    = document.getElementById("status");
+    const resultBox   = document.getElementById("resultBox");
+    const resultImg   = document.getElementById("resultImg");
+    const downloadLink= document.getElementById("downloadLink");
 
-    async function detectGender(file) {
-      const form = new FormData();
-      form.append("image", file);
-      const res = await fetch("/api/gender", { method: "POST", body: form });
-      if (!res.ok) throw new Error("gender-detect-failed");
-      const j = await res.json();
-      return j.gender || "unknown";
+    function apiUrl(path){
+      const base = API_BASE.replace(/\/+$/,'');
+      const p    = path.startsWith("/") ? path : ("/" + path);
+      return base + p;
     }
 
-    async function generateImage(file, role, gender) {
-      const form = new FormData();
-      form.append("role", role);
-      form.append("gender", gender);
-      form.append("image", file);
-      const res = await fetch("/api/generate", { method: "POST", body: form });
-      const j = await res.json();
-      if (!res.ok || !j.imageBase64) throw new Error(j.error || "generate-failed");
-      return j.imageBase64;
+    function setStatus(s){ statusEl.textContent = s || ""; }
+    function showError(msg){ setStatus("Ошибка: " + msg); }
+
+    function escapeHtml(s){return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+    pickBtn.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("dragover", (e) => e.preventDefault());
+    dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); });
+    fileInput.addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) onPick(f); });
+
+    function onPick(f){
+      pickedFile = f;
+      pickedName.style.display = "block";
+      pickedName.innerHTML = `<strong>Файл:</strong> ${escapeHtml(f.name)} (${Math.round((f.size||0)/1024)} KB)`;
+      genBtn.disabled = !pickedFile;
+      resultBox.style.display = "none";
+      resultImg.src = "";
+      setStatus("");
     }
 
-    generateBtn.addEventListener("click", async () => {
-      if (!selectedFile) return;
-      resultImage.style.display = "none";
-      generateBtn.disabled = true;
-      statusEl.textContent = "Определяем пол...";
+    /* ====== HEIC → JPEG (бразуер) или отправляем как есть ====== */
+    async function ensureDisplayableImageOrNull(file){
+      const type=(file.type||"").toLowerCase(); const name=(file.name||"").toLowerCase();
+      const isHeic = type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
+      if (!isHeic) return file;
+      if (!window.heic2any) return null;
+      try{
+        const outBlob = await window.heic2any({ blob: file, toType: "image/jpeg" });
+        return new File([outBlob], (file.name || "image") + ".jpg", { type:"image/jpeg" });
+      }catch(e){ console.warn("HEIC конвертация не удалась:", e); return null; }
+    }
+
+    /* ====== Gender detect с фолбэками ====== */
+    async function detectGenderWithFallbacks(imageFileOrB64){
+      const makeForm = () => {
+        const fd = new FormData();
+        if (typeof imageFileOrB64 === "string") fd.append("image_b64", imageFileOrB64);
+        else fd.append("image", imageFileOrB64);
+        return fd;
+      };
+
+      const tries = [
+        apiUrl("/api/gender"),
+        apiUrl("/gender"),
+      ];
+
+      for (const url of tries) {
+        try{
+          const r = await fetch(url, { method:"POST", body: makeForm() });
+          const t = await r.text();
+          if (!r.ok) { console.warn("gender non-200", r.status, t); continue; }
+          const j = (t && t[0]==="{") ? JSON.parse(t) : {};
+          if (j && j.gender) return j.gender;
+        }catch(err){ console.warn("gender fetch failed:", url, err); }
+      }
+      return "unknown"; // продолжаем без жёсткого пола
+    }
+
+    /* ====== Генерация (всегда через абсолютный API_BASE) ====== */
+    async function generateImage(payloadForm){
+      const tries = [
+        apiUrl("/api/generate"),
+        apiUrl("/generate"),
+      ];
+      for (const url of tries) {
+        try {
+          const resp = await fetch(url, { method:"POST", body: payloadForm });
+          const text = await resp.text();
+          if (!resp.ok) { console.warn("generate non-200", resp.status, text); continue; }
+          try {
+            const j = JSON.parse(text);
+            if (j?.imageBase64) return j.imageBase64;
+          } catch(_) {
+            // бывает, что возвращается сырое base64 или data:image
+            if (text.startsWith("data:image/")) return text.split(",")[1] || "";
+            const compact = text.replace(/\s+/g,'');
+            const base64ish = /^[A-Za-z0-9+/_=-]+$/.test(compact) && compact.length > 200;
+            if (base64ish) return compact;
+          }
+        } catch(err) {
+          console.warn("generate fetch failed:", url, err);
+        }
+      }
+      throw new Error("generate-failed (все попытки)");
+    }
+
+    /* ====== MAIN ====== */
+    genBtn.addEventListener("click", async () => {
+      if (!pickedFile) return;
+
+      genBtn.disabled = true;
+      setStatus("Готовим изображение...");
+
       try {
-        const gender = await detectGender(selectedFile);
-        statusEl.textContent = "Пол определён: " + gender + ". Генерируем образ...";
-        const role = roleSelect.value;
-        const imgB64 = await generateImage(selectedFile, role, gender);
-        resultImage.src = "data:image/png;base64," + imgB64;
-        resultImage.style.display = "block";
-        statusEl.textContent = "Готово!";
+        // Подстраховка HEIC
+        const maybeDisplayable = await ensureDisplayableImageOrNull(pickedFile);
+
+        // 1) Определяем пол, но не падаем, если API вернул ошибку
+        setStatus("Определяем пол...");
+        const gender = await detectGenderWithFallbacks(maybeDisplayable || pickedFile);
+        console.log("gender:", gender);
+
+        // 2) Собираем форму
+        const fd = new FormData();
+        fd.append("role", roleSelect.value);
+        fd.append("gender", (gender==="male"||gender==="female") ? gender : "unknown");
+
+        if (maybeDisplayable) {
+          // читаем b64 в браузере (лучше для маски, если вдруг вернёшься к ней)
+          const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(maybeDisplayable); });
+          fd.append("image_b64", srcB64);
+        } else {
+          // отправляем исходный HEIC/HEIF — воркер сам разберётся
+          fd.append("image", pickedFile);
+        }
+
+        // 3) Генерация
+        setStatus(`Генерируем образ (${roleSelect.value})...`);
+        const imgB64 = await generateImage(fd);
+        const url = "data:image/png;base64," + imgB64;
+
+        // 4) Показ
+        resultImg.src = url;
+        resultBox.style.display = "block";
+        downloadLink.href = url;
+        setStatus("Готово!");
+
       } catch (e) {
         console.error(e);
-        statusEl.textContent = "Ошибка: " + e.message;
+        showError((e && e.message) ? e.message : String(e));
       } finally {
-        generateBtn.disabled = false;
+        genBtn.disabled = false;
       }
     });
   </script>

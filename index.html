@@ -95,24 +95,23 @@
     <div class="sub">© 2025 с любовью КМ™</div>
   </footer>
 
-  <!-- HEIC -> JPEG converter -->
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
     /* ====== CONFIG ====== */
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← URL твоего Cloudflare Worker'а
-    const LOGO_URL = "./logo.png"; // файл лежит рядом с index.html
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // Cloudflare Worker
+    const LOGO_URL = "./logo.png";
 
     /* ====== State ====== */
     let pickedFile = null;
     let pickedRole = null;
 
-    const fileInput = document.getElementById("fileInput");
-    const dropzone = document.getElementById("dropzone");
+    const fileInput  = document.getElementById("fileInput");
+    const dropzone   = document.getElementById("dropzone");
     const pickedName = document.getElementById("pickedName");
-    const genBtn = document.getElementById("genBtn");
-    const errBox = document.getElementById("err");
-    const resultBox = document.getElementById("resultBox");
-    const resultImg = document.getElementById("resultImg");
+    const genBtn     = document.getElementById("genBtn");
+    const errBox     = document.getElementById("err");
+    const resultBox  = document.getElementById("resultBox");
+    const resultImg  = document.getElementById("resultImg");
     const downloadLink = document.getElementById("downloadLink");
     const loadingBox = document.getElementById("loading");
 
@@ -125,7 +124,6 @@
     function escapeHtml(s){return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
     function onPick(f){ pickedFile=f; pickedName.style.display="block"; pickedName.innerHTML=`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg><strong>Вы загрузили:</strong> ${escapeHtml(f.name)}`; updateButtons(); clearError(); }
     document.querySelectorAll(".role").forEach(btn => btn.addEventListener("click", ()=>{ if(!pickedFile) return; pickedRole=btn.dataset.role; document.querySelectorAll(".role").forEach(b=>b.classList.remove("active")); btn.classList.add("active"); updateButtons(); }));
-
     function updateButtons(){ genBtn.disabled = !(pickedFile && pickedRole); }
     function showError(msg){ errBox.style.display="block"; errBox.textContent=msg; loadingBox.style.display="none"; }
     function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
@@ -159,6 +157,11 @@
       if (nx < 0) nx = 0; if (ny < 0) ny = 0;
       if (nx + nw > 1) nx = 1 - nw; if (ny + nh > 1) ny = 1 - nh;
       return { x: nx, y: ny, w: nw, h: nh };
+    }
+    function abToB64(ab){
+      const u8 = new Uint8Array(ab);
+      let s = ""; for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]);
+      return btoa(s);
     }
 
     /* ====== Маска inpainting: ЧЕРНОЕ — не редактировать (голова) ====== */
@@ -258,34 +261,48 @@
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
       } catch(_) {}
-
       return canvas.toDataURL("image/png");
     }
 
-    /* ====== Универсальный парсер ответа воркера (JSON или «голая» base64) ====== */
+    /* ====== УСТОЙЧИВЫЙ ПАРСЕР ОТВЕТА ======
+       Понимает:
+       - JSON { imageBase64 }
+       - dataURL
+       - «голую» base64
+       - чистое бинарное изображение (image/*)
+    ======================================= */
     async function parseImageResponse(resp) {
+      const ct = (resp.headers.get('content-type') || '').toLowerCase();
+
+      // Бинарная картинка (PNG/JPEG/WEBP) — читаем как массив байт
+      if (ct.startsWith('image/')) {
+        const ab = await resp.arrayBuffer();
+        return abToB64(ab);
+      }
+
+      // Иначе пробуем текстовые варианты
       const text = await resp.text();
 
-      // Попытка JSON
+      // JSON
       try {
         const j = JSON.parse(text);
         if (j && (j.imageBase64 || (j.result && j.result.image_base64))) {
           return j.imageBase64 || j.result.image_base64;
         }
-        throw new Error(j?.error || "bad-json");
-      } catch (_) {}
+      } catch (_) { /* not json */ }
 
-      // dataURL?
-      if (text.startsWith("data:image/")) {
-        const b64 = text.split(",")[1] || "";
+      // dataURL
+      if (text.startsWith('data:image/')) {
+        const b64 = text.split(',')[1] || '';
         if (b64.length > 64) return b64;
       }
 
-      // «Голая» base64?
-      const looksLikeB64 = /^[A-Za-z0-9+/=\s]+$/.test(text) && text.length > 256;
-      if (looksLikeB64) return text.replace(/\s+/g, "");
+      // «Голая» base64
+      const looksLikeB64 = /^[A-Za-z0-9+/=\r\n]+$/.test(text) && text.replace(/\s+/g,'').length > 256;
+      if (looksLikeB64) return text.replace(/\s+/g,'');
 
-      throw new Error(text || ("HTTP " + resp.status));
+      // Если дошли сюда — это ошибка
+      throw new Error(text || ('HTTP ' + resp.status));
     }
 
     /* ====== Main ====== */
@@ -299,7 +316,7 @@
 
         const maybeDisplayable = await ensureDisplayableImageOrNull(pickedFile);
 
-        // ВЕТКА A: есть декодируемый файл → строим маску, авто-пол, склейка лица
+        // ВЕТКА A: есть декодируемый файл → маска, авто-пол, склейка лица
         if (maybeDisplayable) {
           const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(maybeDisplayable); });
 
@@ -344,10 +361,10 @@
           downloadLink.href = finalUrl;
           downloadLink.style.display = "inline-block";
         } else {
-          // ВЕТКА B: HEIC не декодируется в браузере → отправляем «как есть», без маски
+          // ВЕТКА B: HEIC не декодируется в браузере → на сервер «как есть»
           const fd = new FormData();
           fd.append("role", document.querySelector('.role.active')?.dataset.role || pickedRole);
-          fd.append("image", pickedFile); // сырой HEIC/HEIF
+          fd.append("image", pickedFile);
 
           const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
           if (!resp.ok) {
@@ -356,7 +373,7 @@
           }
           const imageBase64 = await parseImageResponse(resp);
 
-          // добавляем логотип
+          // логотип
           const finalUrl = await composeLogoOnly(imageBase64);
           resultImg.src = finalUrl;
           resultBox.style.display = "block";

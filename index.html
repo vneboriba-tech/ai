@@ -98,11 +98,11 @@
   <!-- HEIC -> JPEG converter -->
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
-    // ====== CONFIG ======
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← URL твоего Worker'а
-    const LOGO_URL = "./logo.png"; // файл рядом с index.html
+    /* ====== CONFIG ====== */
+    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← URL твоего Cloudflare Worker'а
+    const LOGO_URL = "./logo.png"; // файл лежит рядом с index.html
 
-    // ====== State ======
+    /* ====== State ====== */
     let pickedFile = null;
     let pickedRole = null;
 
@@ -116,7 +116,7 @@
     const downloadLink = document.getElementById("downloadLink");
     const loadingBox = document.getElementById("loading");
 
-    // Uploader
+    /* ====== Uploader ====== */
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => e.preventDefault());
     dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); });
@@ -130,29 +130,26 @@
     function showError(msg){ errBox.style.display="block"; errBox.textContent=msg; loadingBox.style.display="none"; }
     function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
 
-    // HEIC → JPEG если можно; иначе — «сырой» файл на сервер
+    /* ====== HEIC → JPEG, при фейле — на сервер как есть ====== */
     async function ensureDisplayableImageOrNull(file){
       const type=(file.type||"").toLowerCase(); const name=(file.name||"").toLowerCase();
       const isHeic = type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
-      if (!isHeic) return file; // ok
-      if (!window.heic2any) return null; // конвертер недоступен — пусть сервер справится
+      if (!isHeic) return file;
+      if (!window.heic2any) return null;
       try{
         const outBlob = await window.heic2any({ blob: file, toType: "image/jpeg" });
         return new File([outBlob], (file.name || "image") + ".jpg", { type:"image/jpeg" });
-      }catch(e){
-        console.warn("HEIC конвертация не удалась:", e?.message || e);
-        return null; // идём по fail-safe ветке
-      }
+      }catch(_){ return null; }
     }
 
-    // helpers
+    /* ====== Helpers ====== */
     function loadImage(src){
       return new Promise((resolve,reject)=>{
         const i=new Image();
         i.crossOrigin="anonymous";
         i.onload=()=>resolve(i);
         i.onerror=()=>reject(new Error("Не удалось загрузить: "+src));
-        i.src=src + (src.includes("?") ? "" : "?v=" + Date.now()); // cache-bust
+        i.src=src + (src.includes("?") ? "" : "?v=" + Date.now());
       });
     }
     function expandBox(box, scale){
@@ -164,7 +161,7 @@
       return { x: nx, y: ny, w: nw, h: nh };
     }
 
-    // Inpaint-mask: ЧЁРНОЕ = НЕ редактировать (голова), БЕЛОЕ = редактировать
+    /* ====== Маска inpainting: ЧЕРНОЕ — не редактировать (голова) ====== */
     async function buildHeadMaskB64(srcB64, bbox){
       const img = await loadImage("data:image/png;base64,"+srcB64);
       const W=img.width, H=img.height;
@@ -177,12 +174,13 @@
         const w=Math.round(big.w*W), h=Math.round(big.h*H);
         ctx.save();
         ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, 2*Math.PI); ctx.clip();
-        ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h); ctx.restore();
+        ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h);
+        ctx.restore();
       }
       return c.toDataURL("image/png").split(",")[1] || "";
     }
 
-    // Логотип в правом нижнем углу
+    /* ====== Обязательный логотип ====== */
     async function composeLogoOnly(base64Gen){
       const genImg = await loadImage("data:image/png;base64,"+base64Gen);
       const W=genImg.width, H=genImg.height;
@@ -204,11 +202,10 @@
         ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
-      } catch(e) { console.warn("Логотип не добавлен:", e?.message || e); }
+      } catch(_) {}
       return canvas.toDataURL("image/png");
     }
 
-    // Копия лица поверх + логотип
     async function composeFaceAndLogo(base64Gen, base64Src, bbox){
       const genImg = await loadImage("data:image/png;base64,"+base64Gen);
       const srcImg = await loadImage("data:image/png;base64,"+base64Src);
@@ -260,28 +257,53 @@
         ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
         ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
-      } catch(e) { console.warn("Логотип не добавлен:", e?.message || e); }
+      } catch(_) {}
 
       return canvas.toDataURL("image/png");
     }
 
-    // Main
+    /* ====== Универсальный парсер ответа воркера (JSON или «голая» base64) ====== */
+    async function parseImageResponse(resp) {
+      const text = await resp.text();
+
+      // Попытка JSON
+      try {
+        const j = JSON.parse(text);
+        if (j && (j.imageBase64 || (j.result && j.result.image_base64))) {
+          return j.imageBase64 || j.result.image_base64;
+        }
+        throw new Error(j?.error || "bad-json");
+      } catch (_) {}
+
+      // dataURL?
+      if (text.startsWith("data:image/")) {
+        const b64 = text.split(",")[1] || "";
+        if (b64.length > 64) return b64;
+      }
+
+      // «Голая» base64?
+      const looksLikeB64 = /^[A-Za-z0-9+/=\s]+$/.test(text) && text.length > 256;
+      if (looksLikeB64) return text.replace(/\s+/g, "");
+
+      throw new Error(text || ("HTTP " + resp.status));
+    }
+
+    /* ====== Main ====== */
     genBtn.addEventListener("click", async () => {
       try {
         clearError();
         if (!API_BASE || !API_BASE.startsWith("http")) throw new Error("API не настроено. Проверь API_BASE.");
-        if (!pickedFile || !pickedRole) throw new Error("Загрузите фото и выберите роль.");
 
         loadingBox.style.display = "flex";
         genBtn.disabled = true;
 
         const maybeDisplayable = await ensureDisplayableImageOrNull(pickedFile);
 
-        // === ВЕТКА A: JPEG/PNG/WebP/успешный HEIC — полный пайплайн с маской + авто-гендер
+        // ВЕТКА A: есть декодируемый файл → строим маску, авто-пол, склейка лица
         if (maybeDisplayable) {
           const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(maybeDisplayable); });
 
-          // авто-детект пола
+          // авто-пол
           let genderToSend = "unknown";
           try {
             const fdG=new FormData(); fdG.append("image_b64", srcB64);
@@ -309,31 +331,33 @@
           fd.append("want_w","auto"); fd.append("want_h","auto");
 
           const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
-          const raw = await resp.text();
-          if (!resp.ok) throw new Error(raw || ("HTTP "+resp.status));
-          const data = raw ? JSON.parse(raw) : null;
-          if (!data?.imageBase64) throw new Error("Пустой ответ API");
+          if (!resp.ok) {
+            const t = await resp.text();
+            throw new Error((() => { try { return JSON.parse(t)?.error || t; } catch { return t; } })());
+          }
+          const imageBase64 = await parseImageResponse(resp);
 
-          // склейка головы + логотип
-          const finalUrl = await composeFaceAndLogo(data.imageBase64, srcB64, bbox);
+          // склейка лица + логотип
+          const finalUrl = await composeFaceAndLogo(imageBase64, srcB64, bbox);
           resultImg.src = finalUrl;
           resultBox.style.display = "block";
           downloadLink.href = finalUrl;
           downloadLink.style.display = "inline-block";
         } else {
-          // === ВЕТКА B: HEIC не декодируется в браузере — отправляем сырой файл (без маски)
+          // ВЕТКА B: HEIC не декодируется в браузере → отправляем «как есть», без маски
           const fd = new FormData();
           fd.append("role", document.querySelector('.role.active')?.dataset.role || pickedRole);
-          fd.append("image", pickedFile);
+          fd.append("image", pickedFile); // сырой HEIC/HEIF
 
           const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
-          const raw = await resp.text();
-          if (!resp.ok) throw new Error(raw || ("HTTP "+resp.status));
-          const data = raw ? JSON.parse(raw) : null;
-          if (!data?.imageBase64) throw new Error("Пустой ответ API");
+          if (!resp.ok) {
+            const t = await resp.text();
+            throw new Error((() => { try { return JSON.parse(t)?.error || t; } catch { return t; } })());
+          }
+          const imageBase64 = await parseImageResponse(resp);
 
-          // логотип поверх результата (без склейки лица — исходник недоступен)
-          const finalUrl = await composeLogoOnly(data.imageBase64);
+          // добавляем логотип
+          const finalUrl = await composeLogoOnly(imageBase64);
           resultImg.src = finalUrl;
           resultBox.style.display = "block";
           downloadLink.href = finalUrl;
@@ -345,6 +369,17 @@
         loadingBox.style.display = "none";
         genBtn.disabled = !(pickedFile && pickedRole);
       }
+    });
+
+    // роль-пикер
+    document.querySelectorAll(".role").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (!pickedFile) return;
+        pickedRole = btn.dataset.role;
+        document.querySelectorAll(".role").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        genBtn.disabled = !(pickedFile && pickedRole);
+      });
     });
   </script>
 </body>

@@ -98,38 +98,42 @@
   <!-- HEIC -> JPEG converter -->
   <script src="https://cdn.jsdelivr.net/npm/heic2any/dist/heic2any.min.js"></script>
   <script>
-    /* ====== CONFIG ====== */
-    const API_BASE = "https://media-gen-worker.vneboriba.workers.dev/"; // ← твой Worker URL
-    const LOGO_URL = "./logo.png"; // кладём рядом с index.html
+    // ====== CONFIG ======
+    const API_BASE = location.origin.replace(/\/+$/,'') + '/api'; // будет работать и без /api (воркер нормализует)
+    const LOGO_URL = "./logo.png";
 
-    /* ====== State ====== */
+    // ====== State ======
     let pickedFile = null;
     let pickedRole = null;
 
-    const fileInput  = document.getElementById("fileInput");
-    const dropzone   = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
+    const dropzone = document.getElementById("dropzone");
     const pickedName = document.getElementById("pickedName");
-    const genBtn     = document.getElementById("genBtn");
-    const errBox     = document.getElementById("err");
-    const resultBox  = document.getElementById("resultBox");
-    const resultImg  = document.getElementById("resultImg");
+    const genBtn = document.getElementById("genBtn");
+    const errBox = document.getElementById("err");
+    const resultBox = document.getElementById("resultBox");
+    const resultImg = document.getElementById("resultImg");
     const downloadLink = document.getElementById("downloadLink");
     const loadingBox = document.getElementById("loading");
 
-    /* ====== UI ====== */
+    // Uploader
     dropzone.addEventListener("click", () => fileInput.click());
     dropzone.addEventListener("dragover", (e) => e.preventDefault());
     dropzone.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); });
     fileInput.addEventListener("change", (e) => { const f = e.target.files?.[0]; if (f) onPick(f); });
 
     function escapeHtml(s){return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-    function onPick(f){ pickedFile=f; pickedName.style.display="block"; pickedName.innerHTML=`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg><strong>Вы загрузили:</strong> ${escapeHtml(f.name)}`; updateButtons(); clearError(); }
+    function onPick(f){ pickedFile=f; pickedName.style.display="block"; pickedName.innerHTML=\`
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg><strong>Вы загрузили:</strong> \${escapeHtml(f.name)}\`; updateButtons(); clearError(); }
     document.querySelectorAll(".role").forEach(btn => btn.addEventListener("click", ()=>{ if(!pickedFile) return; pickedRole=btn.dataset.role; document.querySelectorAll(".role").forEach(b=>b.classList.remove("active")); btn.classList.add("active"); updateButtons(); }));
+
     function updateButtons(){ genBtn.disabled = !(pickedFile && pickedRole); }
     function showError(msg){ errBox.style.display="block"; errBox.textContent=String(msg); loadingBox.style.display="none"; }
     function clearError(){ errBox.style.display="none"; errBox.textContent=""; }
 
-    /* ====== HEIC fallback ====== */
+    // HEIC → JPEG если можно; иначе — сырым на сервер
     async function ensureDisplayableImageOrNull(file){
       const type=(file.type||"").toLowerCase(); const name=(file.name||"").toLowerCase();
       const isHeic = type.includes("heic") || type.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif");
@@ -141,52 +145,44 @@
       }catch(e){ console.warn("HEIC convert failed:", e); return null; }
     }
 
-    /* ====== base64 & image helpers (robust) ====== */
+    // Helpers
     function normalizeB64(b64){
-      let s = String(b64||"").trim().replace(/\s+/g,'').replace(/-/g,'+').replace(/_/g,'/');
+      let s = String(b64||"").replace(/\s+/g,'').replace(/-/g,'+').replace(/_/g,'/');
       const pad = s.length % 4;
       if (pad === 2) s += '==';
       else if (pad === 3) s += '=';
       else if (pad !== 0) s += '===';
       return s;
     }
-    function detectMimeFromB64(b64){
-      try{
-        const s = normalizeB64(b64);
-        const head = atob(s.slice(0,64));
-        const b = Array.from(head).map(c=>c.charCodeAt(0));
-        if (b[0]===0xFF && b[1]===0xD8 && b[2]===0xFF) return "image/jpeg";           // JPEG
-        if (b[0]===0x89 && b[1]===0x50 && b[2]===0x4E && b[3]===0x47) return "image/png"; // PNG
-        if (b[0]===0x52 && b[1]===0x49 && b[2]===0x46 && b[3]===0x46) return "image/webp";// WEBP
-      }catch(_){}
-      return "image/png";
-    }
-    function b64ToBlob(b64, mime){
+    function b64ToBlobUrl(b64, mime){
       const s = atob(normalizeB64(b64));
       const u8 = new Uint8Array(s.length);
       for (let i=0;i<s.length;i++) u8[i] = s.charCodeAt(i);
-      return new Blob([u8], { type: mime || "application/octet-stream" });
+      const blob = new Blob([u8], { type: mime || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      return { url, revoke: () => URL.revokeObjectURL(url) };
     }
-    async function loadBitmapFromBlob(blob){
-      if (window.createImageBitmap) {
-        try { return await createImageBitmap(blob); } catch(e){ /* fallback ниже */ }
-      }
-      return await new Promise((resolve,reject)=>{
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = ()=>{ URL.revokeObjectURL(url); resolve(img); };
-        img.onerror = (err)=>{ URL.revokeObjectURL(url); reject(err || new Error("Image load failed")); };
-        img.crossOrigin = "anonymous";
-        img.src = url;
+    function detectMimeFromB64(b64){
+      try{
+        const bin = atob(normalizeB64(b64).slice(0,50));
+        const bytes = Array.from(bin).map(c=>c.charCodeAt(0));
+        if (bytes[0]===0xFF && bytes[1]===0xD8 && bytes[2]===0xFF) return "image/jpeg";
+        if (bytes[0]===0x89 && bytes[1]===0x50 && bytes[2]===0x4E && bytes[3]===0x47) return "image/png";
+        if (bytes[0]===0x52 && bytes[1]===0x49 && bytes[2]===0x46 && bytes[3]===0x46) return "image/webp";
+      }catch(_){}
+      return "image/png";
+    }
+    function abToB64(ab){const u8=new Uint8Array(ab);let s="";for(let i=0;i<u8.length;i++)s+=String.fromCharCode(u8[i]);return btoa(s)}
+    function loadImage(src){
+      return new Promise((resolve,reject)=>{
+        const i=new Image(); i.crossOrigin="anonymous";
+        i.onload=()=>resolve(i);
+        i.onerror=()=>reject(new Error("Не удалось загрузить изображение…"));
+        i.src=src;
       });
     }
-    function abToB64(ab){
-      const u8=new Uint8Array(ab); let s="";
-      for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]);
-      return btoa(s);
-    }
 
-    /* ====== Inpaint-mask (чёрное — НЕ редактировать) ====== */
+    // expandBox + inpaint mask (чёрное = не редактировать)
     function expandBox(box, scale){
       const cx = box.x + box.w/2, cy = box.y + box.h/2;
       const nw = Math.min(1, box.w * scale), nh = Math.min(1, box.h * scale * 1.2);
@@ -196,67 +192,61 @@
       return { x: nx, y: ny, w: nw, h: nh };
     }
     async function buildHeadMaskB64(srcB64, bbox){
-      const srcBlob = b64ToBlob(srcB64, detectMimeFromB64(srcB64));
-      const img = await loadBitmapFromBlob(srcBlob);
-
-      const W=img.width, H=img.height;
+      const {url, revoke} = b64ToBlobUrl(srcB64, "image/png");
+      const img = await loadImage(url); const W=img.width, H=img.height; revoke();
       const c=document.createElement("canvas"); c.width=W; c.height=H;
-      const ctx=c.getContext("2d");
-      ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
+      const ctx=c.getContext("2d"); ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
       if (bbox) {
         const big = expandBox(bbox, 1.95);
         const x=Math.round(big.x*W), y=Math.round(big.y*H);
         const w=Math.round(big.w*W), h=Math.round(big.h*H);
-        ctx.save();
-        ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, 2*Math.PI); ctx.clip();
-        ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h);
-        ctx.restore();
+        ctx.save(); ctx.beginPath(); ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, 2*Math.PI); ctx.clip();
+        ctx.fillStyle="#000000"; ctx.fillRect(x,y,w,h); ctx.restore();
       }
       return c.toDataURL("image/png").split(",")[1] || "";
     }
 
-    /* ====== ЛОГО ====== */
+    // Логотип
     async function composeLogoOnly(base64Gen){
+      base64Gen = normalizeB64(base64Gen);
       const mime = detectMimeFromB64(base64Gen);
-      const genBlob = b64ToBlob(base64Gen, mime);
-      const genImg  = await loadBitmapFromBlob(genBlob);
-
+      const genURL = b64ToBlobUrl(base64Gen, mime);
+      const genImg = await loadImage(genURL.url);
       const W=genImg.width, H=genImg.height;
       const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
       const ctx=canvas.getContext("2d");
       ctx.drawImage(genImg, 0, 0, W, H);
+      genURL.revoke();
 
       try {
-        const logoResp = await fetch(LOGO_URL, { cache:"no-store" });
-        if (!logoResp.ok) throw new Error("logo fetch " + logoResp.status);
-        const logoBlob = await logoResp.blob();
-        const logoImg  = await loadBitmapFromBlob(logoBlob);
-
+        const logo = await loadImage(LOGO_URL);
         const margin = Math.round(Math.min(W,H)*0.02);
         const targetW = Math.round(W * 0.14);
-        const ratio = (logoImg.width||1)/(logoImg.height||1);
+        const ratio = (logo.width||1)/(logo.height||1);
         const targetH = Math.round(targetW/ratio);
         const x = W - targetW - margin;
         const y = H - targetH - margin;
-
         ctx.globalAlpha = 0.95;
         ctx.fillStyle = "rgba(255,255,255,0.92)";
         const pad = Math.round(targetW*0.08);
         ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
-        ctx.drawImage(logoImg, x, y, targetW, targetH);
+        ctx.drawImage(logo, x, y, targetW, targetH);
         ctx.globalAlpha = 1;
       } catch(e) { console.warn("Логотип не добавлен:", e); }
-
       return canvas.toDataURL("image/png");
     }
 
+    // Копия головы + логотип
     async function composeFaceAndLogo(base64Gen, base64Src, bbox){
-      const mimeG = detectMimeFromB64(base64Gen);
-      const genBlob = b64ToBlob(base64Gen, mimeG);
-      const srcBlob = b64ToBlob(base64Src, detectMimeFromB64(base64Src));
+      base64Gen = normalizeB64(base64Gen);
+      base64Src = normalizeB64(base64Src);
 
-      const genImg = await loadBitmapFromBlob(genBlob);
-      const srcImg = await loadBitmapFromBlob(srcBlob);
+      const mime = detectMimeFromB64(base64Gen);
+      const genURL = b64ToBlobUrl(base64Gen, mime);
+      const srcURL = b64ToBlobUrl(base64Src, "image/png");
+
+      const genImg = await loadImage(genURL.url);
+      const srcImg = await loadImage(srcURL.url);
 
       const W=genImg.width, H=genImg.height;
       const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
@@ -264,7 +254,7 @@
       ctx.drawImage(genImg, 0, 0, W, H);
 
       if (bbox){
-        const big = expandBox(bbox, 1.8);
+        const big = expandBox(bbox, 1.85);
         const sx=Math.round(big.x*srcImg.width);
         const sy=Math.round(big.y*srcImg.height);
         const sw=Math.round(big.w*srcImg.width);
@@ -274,50 +264,44 @@
         const dw=Math.round(big.w*W);
         const dh=Math.round(big.h*H);
 
-        // перьевая маска
+        // перовое сглаживание
         const mask=document.createElement("canvas"); mask.width=dw; mask.height=dh;
         const mctx=mask.getContext("2d");
         const r=Math.min(dw,dh);
-        const grad=mctx.createRadialGradient(dw/2, dh/2, r*0.32, dw/2, dh/2, r*0.50);
+        const grad=mctx.createRadialGradient(dw/2, dh/2, r*0.40, dw/2, dh/2, r*0.54);
         grad.addColorStop(0,"rgba(0,0,0,1)"); grad.addColorStop(1,"rgba(0,0,0,0)");
         mctx.fillStyle=grad; mctx.fillRect(0,0,dw,dh);
 
         const face=document.createElement("canvas"); face.width=dw; face.height=dh;
         const fctx=face.getContext("2d"); fctx.drawImage(srcImg, sx, sy, sw, sh, 0, 0, dw, dh);
 
-        ctx.save();
-        ctx.drawImage(face, dx, dy, dw, dh);
-        ctx.globalCompositeOperation='destination-in';
-        ctx.drawImage(mask, dx, dy);
+        ctx.save(); ctx.drawImage(face, dx, dy, dw, dh);
+        ctx.globalCompositeOperation='destination-in'; ctx.drawImage(mask, dx, dy);
         ctx.restore();
       }
 
+      genURL.revoke(); srcURL.revoke();
+
       // логотип
       try {
-        const logoResp = await fetch(LOGO_URL, { cache:"no-store" });
-        if (!logoResp.ok) throw new Error("logo fetch " + logoResp.status);
-        const logoBlob = await logoResp.blob();
-        const logoImg  = await loadBitmapFromBlob(logoBlob);
-
+        const logo = await loadImage(LOGO_URL);
         const margin = Math.round(Math.min(W,H)*0.02);
         const targetW = Math.round(W * 0.14);
-        const ratio = (logoImg.width||1)/(logoImg.height||1);
+        const ratio = (logo.width||1)/(logo.height||1);
         const targetH = Math.round(targetW/ratio);
         const x = W - targetW - margin;
         const y = H - targetH - margin;
-
-        ctx.globalAlpha = 0.95;
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
         const pad = Math.round(targetW*0.08);
-        ctx.fillRect(x-pad, y-pad, targetW+pad*2, targetH+pad*2);
-        ctx.drawImage(logoImg, x, y, targetW, targetH);
-        ctx.globalAlpha = 1;
+        const bg = document.createElement("canvas"); bg.width=targetW+pad*2; bg.height=targetH+pad*2;
+        const bctx=bg.getContext("2d"); bctx.fillStyle="rgba(255,255,255,0.92)"; bctx.fillRect(0,0,bg.width,bg.height);
+        ctx.drawImage(bg, x-pad, y-pad);
+        ctx.drawImage(logo, x, y, targetW, targetH);
       } catch(e) { console.warn("Логотип не добавлен:", e); }
 
       return canvas.toDataURL("image/png");
     }
 
-    /* ====== Ответ воркера → base64 картинки ====== */
+    // Parse worker response
     async function parseImageResponse(resp) {
       const ct = (resp.headers.get('content-type') || '').toLowerCase();
 
@@ -350,37 +334,36 @@
       showError(e?.message || String(e));
     }
 
-    /* ====== Main ====== */
+    // Main
     genBtn.addEventListener("click", async () => {
       try {
         clearError();
-        if (!API_BASE || !API_BASE.startsWith("http")) throw new Error("API не настроено. Проверь API_BASE.");
-
         loadingBox.style.display = "flex";
         genBtn.disabled = true;
 
         const maybeDisplayable = await ensureDisplayableImageOrNull(pickedFile);
 
         if (maybeDisplayable) {
+          // читаем исходник в b64 (для маски и последующей склейки)
           const srcB64 = await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(maybeDisplayable); });
 
-          // авто-пол по исходнику
+          // авто-пол
           let genderToSend = "unknown";
           try {
             const fdG=new FormData(); fdG.append("image_b64", srcB64);
-            const rG=await fetch(API_BASE.replace(/\/+$/,'') + "/api/gender", { method:"POST", body:fdG });
+            const rG=await fetch(API_BASE + "/gender", { method:"POST", body:fdG });
             const jG=await rG.json(); genderToSend = jG?.gender || "unknown";
           } catch(e){ console.warn('gender detect failed', e); }
 
-          // bbox головы
+          // bbox
           let bbox = null;
           try {
             const fdD=new FormData(); fdD.append("image_b64", srcB64);
-            const rD=await fetch(API_BASE.replace(/\/+$/,'') + "/api/detect-face", { method:"POST", body:fdD });
+            const rD=await fetch(API_BASE + "/detect-face", { method:"POST", body:fdD });
             const jD=await rD.json(); bbox = jD?.face?.box || null;
           } catch(e){ console.warn('face detect failed', e); }
 
-          // маска (freeze head)
+          // маска (даём воркеру как подсказку)
           const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
 
           // генерация
@@ -389,9 +372,8 @@
           fd.append("gender", genderToSend);
           fd.append("image_b64", srcB64);
           if (maskB64) fd.append("mask_b64", maskB64);
-          fd.append("want_w","auto"); fd.append("want_h","auto");
 
-          const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
+          const resp = await fetch(API_BASE + "/generate", { method:"POST", body: fd });
           if (!resp.ok) {
             const t = await resp.text();
             console.error('generate non-200:', resp.status, t);
@@ -399,19 +381,19 @@
           }
           const imageBase64 = await parseImageResponse(resp);
 
-          // голова + логотип
+          // склейка головы + логотип
           const finalUrl = await composeFaceAndLogo(imageBase64, srcB64, bbox);
           resultImg.src = finalUrl;
           resultBox.style.display = "block";
           downloadLink.href = finalUrl;
           downloadLink.style.display = "inline-block";
         } else {
-          // HEIC сырой → сервер (без локальной маски, но логотип добавим на клиенте)
+          // HEIC raw → без маски
           const fd = new FormData();
           fd.append("role", document.querySelector('.role.active')?.dataset.role || pickedRole);
           fd.append("image", pickedFile);
 
-          const resp = await fetch(API_BASE.replace(/\/+$/,'') + "/api/generate", { method:"POST", body: fd });
+          const resp = await fetch(API_BASE + "/generate", { method:"POST", body: fd });
           if (!resp.ok) {
             const t = await resp.text();
             console.error('generate non-200 (raw HEIC):', resp.status, t);
@@ -419,7 +401,6 @@
           }
           const imageBase64 = await parseImageResponse(resp);
 
-          // логотип (исходник недоступен — без склейки лица)
           const finalUrl = await composeLogoOnly(imageBase64);
           resultImg.src = finalUrl;
           resultBox.style.display = "block";

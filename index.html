@@ -1,91 +1,199 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Почувствуй себя журналистом</title>
-<style>
-body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial;margin:0;padding:0;background:#fff;color:#111;display:flex;flex-direction:column;align-items:center}
-.container{max-width:960px;width:100%;padding:24px}
-h1{text-align:center;font-size:clamp(28px,4vw,42px);font-weight:800;margin:0 0 20px}
-.uploader{border:2px dashed #ddd;border-radius:20px;padding:40px 20px;text-align:center;cursor:pointer;background:#fafafa;transition:.2s}
-.uploader:hover{background:#f0f9ff;border-color:#2563eb}
-.role-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:20px 0}
-.role{padding:14px;border:1px solid #ddd;border-radius:12px;cursor:pointer;background:#fff;font-weight:600}
-.role.active{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.25)}
-.btn{background:#2563eb;color:#fff;border:0;border-radius:12px;padding:12px 20px;font-weight:600;cursor:pointer}
-.btn:disabled{opacity:.5;cursor:not-allowed}
-.result img{max-width:100%;border-radius:18px;margin-top:20px;border:1px solid #ddd}
-footer{margin-top:40px;color:#666;font-size:14px;text-align:center}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Почувствуй себя журналистом</title>
+  <meta name="description" content="Журналист / Блогер / Фотограф — генерация образа с сохранением лица" />
+  <style>
+    :root {
+      --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#2563eb; --border:#e5e7eb;
+    }
+    * { box-sizing:border-box; }
+    html,body {
+      margin:0; padding:0;
+      background:var(--bg); color:var(--fg);
+      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;
+      min-height:100%;
+    }
+    body { display:flex; flex-direction:column; align-items:center; }
+    .container { width:100%; max-width:960px; padding:24px; }
+
+    header { text-align:center; margin-bottom:24px; }
+    .title { font-size:clamp(28px,4vw,44px); font-weight:800; letter-spacing:-0.02em; margin:0; }
+
+    .uploader {
+      border:2px dashed var(--border);
+      border-radius:24px;
+      padding:40px 20px;
+      text-align:center;
+      transition:.2s;
+      background:#f9fafb;
+    }
+    .uploader:hover { border-color:#3b82f6; background:#f0f9ff; }
+    .uploader .logo { width:72px; height:72px; object-fit:contain; opacity:.95; display:block; margin:0 auto 12px; }
+    .uploader .headline { font-size:18px; font-weight:700; }
+    .uploader .sub { font-size:14px; color:var(--muted); margin-top:6px; }
+
+    .picked { font-size:14px; margin-top:10px; color:#111827; }
+
+    .roles-title { text-align:center; font-weight:800; margin-top:24px; text-transform:uppercase; }
+    .roles-grid {
+      display:grid;
+      grid-template-columns:1fr;
+      gap:12px; margin-top:12px;
+    }
+    @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
+
+    .role {
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:16px;
+      cursor:pointer;
+      background:#fff;
+      transition:.15s;
+      font-size:18px;
+      font-weight:800;
+      text-transform:uppercase;
+    }
+    .role.active { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.25); }
+
+    .actions { margin-top:20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+    .btn {
+      border:0; border-radius:14px; padding:12px 20px;
+      background:var(--brand); color:#fff;
+      font-weight:800; text-transform:uppercase;
+      cursor:pointer;
+    }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+
+    .loading { display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; }
+    .spinner {
+      width:16px; height:16px;
+      border:2px solid #cbd5e1; border-top-color:var(--brand);
+      border-radius:50%;
+      animation:spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    .result { margin-top:24px; text-align:center; }
+    .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
+
+    footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
+
+    .err { color:#dc2626; font-size:14px; display:none; }
+  </style>
 </head>
 <body>
-<div class="container">
-  <h1>Почувствуй себя журналистом</h1>
-  <div class="uploader" id="drop">Загрузите фото<input type="file" id="file" accept="image/*" hidden></div>
-  <div class="role-grid">
-    <button class="role" data-role="журналист">Журналист</button>
-    <button class="role" data-role="блогер">Блогер</button>
-    <button class="role" data-role="фотограф">Фотограф</button>
+  <div class="container">
+    <header>
+      <h1 class="title">Почувствуй себя журналистом</h1>
+    </header>
+
+    <div class="uploader" id="dropzone">
+      <img class="logo" src="logo.png" alt="Логотип" onerror="this.style.display='none'">
+      <div class="headline">Загрузите фото</div>
+      <div class="sub">JPG, PNG, HEIC (до 12 МБ)</div>
+      <input id="fileInput" type="file" accept="image/*" style="display:none" />
+      <div id="picked" class="picked"></div>
+    </div>
+
+    <div class="roles">
+      <div class="roles-title">Выберите роль</div>
+      <div class="roles-grid">
+        <button class="role" data-role="журналист">ЖУРНАЛИСТ</button>
+        <button class="role" data-role="блогер">БЛОГЕР</button>
+        <button class="role" data-role="фотограф">ФОТОГРАФ</button>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="genBtn" class="btn" disabled>СГЕНЕРИРОВАТЬ ОБРАЗ</button>
+      <div id="loading" class="loading" style="display:none"><span class="spinner"></span> <span>Обрабатываем…</span></div>
+      <a id="download" class="btn" download="result.png" style="display:none;background:#10b981;">СКАЧАТЬ PNG</a>
+      <div id="error" class="err"></div>
+    </div>
+
+    <div class="result" id="resultBox" style="display:none;">
+      <img id="resultImg" alt="Результат" />
+    </div>
   </div>
-  <button id="gen" class="btn" disabled>Сгенерировать</button>
-  <div id="error" style="color:#c00;margin-top:10px"></div>
-  <div class="result"><img id="out" alt=""></div>
-</div>
-<footer>© 2025 факультет журналистики МГУ</footer>
+
+  <footer>© 2025 факультет журналистики МГУ</footer>
+
 <script>
-const API="https://media-gen-worker.vneboriba.workers.dev";
-let file=null,role=null,faceBox=null,imgEl=null;
+const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
 
-function sel(q){return document.querySelector(q)}
-function makeMask(img,box){
-  const c=document.createElement("canvas");
-  c.width=img.naturalWidth;c.height=img.naturalHeight;
-  const ctx=c.getContext("2d");
-  ctx.fillStyle="black";ctx.fillRect(0,0,c.width,c.height);
-  if(box){ctx.fillStyle="white";
-    ctx.fillRect(box.x*c.width,box.y*c.height,box.w*c.width,box.h*c.height);}
-  return c.toDataURL("image/png").split(",")[1];
-}
+let file = null, role = null;
 
-async function detectFace(b64){
-  const fd=new FormData();fd.append("image_b64",b64);
-  const r=await fetch(API+"/api/detect-face",{method:"POST",body:fd});
-  const j=await r.json();return j.face?.box||null;
-}
+const input = document.getElementById('fileInput');
+const drop = document.getElementById('dropzone');
+const picked = document.getElementById('picked');
+const btn = document.getElementById('genBtn');
+const loading = document.getElementById('loading');
+const resultBox = document.getElementById('resultBox');
+const resultImg = document.getElementById('resultImg');
+const download = document.getElementById('download');
+const err = document.getElementById('error');
 
-sel('#drop').onclick=()=>sel('#file').click();
-sel('#file').onchange=e=>{
-  file=e.target.files[0];
-  sel('#gen').disabled=!role;
-  const url=URL.createObjectURL(file);
-  imgEl=new Image();imgEl.src=url;
-};
-
-document.querySelectorAll('.role').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('.role').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');role=b.dataset.role;
-  sel('#gen').disabled=!file;
+drop.addEventListener('click', ()=>input.click());
+input.addEventListener('change', e => onFile(e.target.files?.[0]));
+drop.addEventListener('dragover', e => e.preventDefault());
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files?.[0];
+  if (f) onFile(f);
 });
 
-sel('#gen').onclick=async()=>{
-  sel('#error').textContent="";sel('#gen').disabled=true;
+function onFile(f){
+  if (!f) return;
+  if (!f.type.startsWith('image/')) return showErr("Нужен файл изображения.");
+  file=f;
+  picked.textContent=`Вы выбрали: ${f.name}`;
+  btn.disabled = !role;
+  hideErr();
+}
+document.querySelectorAll('.role').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.role').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  role=b.dataset.role;
+  btn.disabled = !file;
+}));
+
+function showErr(m){ err.style.display='block'; err.textContent=m; }
+function hideErr(){ err.style.display='none'; }
+function showLoading(s){ loading.style.display=s?'flex':'none'; }
+
+async function toB64(f){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result.split(',')[1]);
+    r.onerror=()=>rej();
+    r.readAsDataURL(f);
+  });
+}
+
+btn.addEventListener('click',async()=>{
+  hideErr(); showLoading(true); btn.disabled=true;
   try{
-    const fr=new FileReader();
-    const b64=await new Promise(res=>{fr.onload=()=>res(fr.result.split(",")[1]);fr.readAsDataURL(file);});
-    faceBox=await detectFace(b64);
-    const maskB64=faceBox?makeMask(imgEl,faceBox):"";
-    const fd=new FormData();
-    fd.append("role",role);fd.append("image_b64",b64);
-    if(maskB64) fd.append("mask_b64",maskB64);
-    const r=await fetch(API+"/api/generate",{method:"POST",body:fd});
-    const j=await r.json();
-    if(!j.imageBase64) throw new Error(j.error||"Ошибка");
-    const base="data:image/png;base64,"+j.imageBase64;
-    sel('#out').src=base;
-  }catch(e){sel('#error').textContent=e.message;}
-  sel('#gen').disabled=false;
-};
+    const b64 = await toB64(file);
+    const fd = new FormData();
+    fd.append("role", role);
+    fd.append("image_b64", b64);
+
+    const r = await fetch(API_BASE+"/api/generate",{method:"POST",body:fd});
+    const txt = await r.text();
+    if (!r.ok) throw new Error("Ошибка генерации");
+    const j = JSON.parse(txt);
+    if (!j?.imageBase64) throw new Error(j?.error || "Нет изображения");
+
+    resultImg.src = "data:image/png;base64," + j.imageBase64;
+    resultBox.style.display = 'block';
+    download.href = resultImg.src;
+    download.style.display = 'inline-block';
+  }catch(e){ showErr(e.message); }
+  finally{ showLoading(false); btn.disabled=false; }
+});
 </script>
 </body>
 </html>

@@ -8,21 +8,16 @@
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#2563eb; --border:#e5e7eb; }
     * { box-sizing: border-box; }
-    html, body {
-      margin:0; padding:0; background:var(--bg); color:var(--fg);
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg);
       font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
-      min-height:100%;
-    }
+      min-height:100%; }
     body { display:flex; flex-direction:column; }
     .container { max-width:1040px; margin:0 auto; padding:24px 20px 48px; width:100%; }
 
-    header { display:flex; align-items:center; justify-content:center; position:relative; padding:8px 0 24px; }
+    header { display:flex; align-items:center; justify-content:center; padding:8px 0 24px; }
     .title { font-size:clamp(28px,4vw,48px); font-weight:800; letter-spacing:-0.02em; margin:0; text-align:center; }
 
-    .uploader {
-      border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px;
-      text-align:center; transition:.2s ease;
-    }
+    .uploader { border:2px dashed var(--border); background:#f9fafb; border-radius:24px; padding:40px 24px; text-align:center; transition:.2s; }
     .uploader:hover { border-color:#93c5fd; background:#f0f9ff; }
     .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.9; margin:0 auto 12px; display:block; }
     .uploader .headline { font-size:clamp(18px,2.4vw,22px); font-weight:600; }
@@ -35,7 +30,7 @@
     .roles-title { text-align:center; font-weight:800; font-size:18px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:10px; }
     @media (min-width:820px){ .roles-grid{ grid-template-columns:repeat(3,1fr);} }
-    .role { border:1px solid var(--border); border-radius:16px; padding:18px; background:white; cursor:pointer; transition:.15s; }
+    .role { border:1px solid var(--border); border-radius:16px; padding:18px; background:#fff; cursor:pointer; transition:.15s; }
     .role:hover { box-shadow:0 6px 18px rgba(0,0,0,.06); }
     .role.active { border-color:#3b82f6; box-shadow:0 0 0 4px rgba(59,130,246,.2); }
 
@@ -45,13 +40,13 @@
     .link { display:inline-block; border:1px solid var(--border); border-radius:14px; padding:10px 16px; text-decoration:none; color:inherit; }
 
     .loading { display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; }
-    .spinner { width:16px; height:16px; border:2px solid #cbd5e1; border-top-color: var(--brand); border-radius:50%; animation:spin 1s linear infinite; }
+    .spinner { width:16px; height:16px; border:2px solid #cbd5e1; border-top-color:var(--brand); border-radius:50%; animation:spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .result { margin-top:18px; text-align:center; }
     .result img { width:100%; max-width:860px; border-radius:18px; border:1px solid var(--border); }
 
-    footer { margin-top:auto; text-align:center; color:#111827; font-size:14px; padding:24px 0; border-top:1px solid #e5e7eb; background:#ffffff; }
+    footer { margin-top:auto; text-align:center; color:#111827; font-size:14px; padding:24px 0; border-top:1px solid #e5e7eb; background:#fff; }
     footer .sub { font-size:13px; color:#6b7280; }
 
     .tiny { font-size:12px; color:#6b7280; white-space:pre-wrap; display:none; }
@@ -59,9 +54,7 @@
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1 class="title">Почувствуй себя журналистом</h1>
-    </header>
+    <header><h1 class="title">Почувствуй себя журналистом</h1></header>
 
     <div class="uploader" id="dropzone">
       <img class="logo" src="./logo.png" alt="Логотип" onerror="this.style.display='none'">
@@ -82,9 +75,7 @@
 
     <div class="actions">
       <button id="genBtn" class="btn" disabled>Сгенерировать образ</button>
-      <div id="loading" class="loading" style="display:none">
-        <span class="spinner" aria-hidden="true"></span><span>Обрабатываем…</span>
-      </div>
+      <div id="loading" class="loading" style="display:none"><span class="spinner" aria-hidden="true"></span><span>Обрабатываем…</span></div>
       <a id="downloadLink" class="link" download="image.png" style="display:none">Скачать PNG</a>
       <div id="err" style="font-size:14px;color:#dc2626;display:none"></div>
       <div id="debug" class="tiny"></div>
@@ -130,12 +121,12 @@ function logDebug(s){ debugBox.style.display='block'; debugBox.textContent=(debu
 
 dropzone.addEventListener("click",()=>fileInput.click());
 dropzone.addEventListener("dragover",e=>e.preventDefault());
-dropzone.addEventListener("drop",(e)=>{e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(f) onPick(f);});
-fileInput.addEventListener("change",(e)=>{const f=e.target.files?.[0]; if(f) onPick(f);});
+dropzone.addEventListener("drop",e=>{e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(f) onPick(f);});
+fileInput.addEventListener("change",e=>{const f=e.target.files?.[0]; if(f) onPick(f);});
 
 function onPick(f){
-  if (!(f.type||"").startsWith("image/")) return showError("Выберите файл изображения.");
-  if (f.size > MAX_FILE_MB*1048576) return showError(`Слишком большой файл (${humanSize(f.size)}).`);
+  if(!(f.type||"").startsWith("image/")) return showError("Выберите файл изображения.");
+  if(f.size > MAX_FILE_MB*1048576) return showError(`Слишком большой файл (${humanSize(f.size)}).`);
   pickedFile=f;
   pickedName.style.display="block"; pickedName.classList.add("picked");
   pickedName.innerHTML=`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg><strong>Вы загрузили:</strong> ${escapeHtml(f.name)} (${humanSize(f.size)})`;
@@ -150,8 +141,8 @@ document.querySelectorAll(".role").forEach(btn=>btn.addEventListener("click",()=
 }));
 
 function safeJson(t){try{return JSON.parse(t);}catch{return null;}}
-function loadImage(src){return new Promise((res,rej)=>{const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=()=>rej(new Error("Не удалось загрузить: "+src)); i.src=src;});}
 const fileToB64=f=>new Promise((res,rej)=>{const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=()=>rej(new Error("read fail")); r.readAsDataURL(f);});
+function loadImage(src){return new Promise((res,rej)=>{const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=()=>rej(new Error("img load fail")); i.src=src;});}
 
 function expandBox(box, scale){
   const cx=box.x+box.w/2, cy=box.y+box.h/2;
@@ -165,9 +156,9 @@ async function buildHeadMaskB64(srcB64,bbox){
   const W=img.width,H=img.height;
   const c=document.createElement("canvas"); c.width=W; c.height=H;
   const ctx=c.getContext("2d");
-  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);           // БЕЛОЕ = можно менять
   if(bbox){
-    const big=expandBox(bbox,2.1); // шире: уши/волосы/шея
+    const big=expandBox(bbox,2.1);                          // чёрное — голова/шея
     const x=Math.round(big.x*W), y=Math.round(big.y*H);
     const w=Math.round(big.w*W), h=Math.round(big.h*H);
     const cx=x+w/2, cy=y+h*0.55;
@@ -198,12 +189,10 @@ async function composeFaceAndLogo(base64Gen, base64Src, bbox){
     face.getContext("2d").drawImage(srcImg,sx,sy,sw,sh,0,0,dw,dh);
 
     const mask=document.createElement("canvas"); mask.width=dw; mask.height=dh;
-    const mctx=mask.getContext("2d");
-    const r=Math.min(dw,dh);
-    const grad=mctx.createRadialGradient(dw/2,dh/2,r*0.36,dw/2,dh/2,r*0.55);
-    grad.addColorStop(0,"rgba(0,0,0,1)");
-    grad.addColorStop(1,"rgba(0,0,0,0)");
-    mctx.fillStyle=grad; mctx.fillRect(0,0,dw,dh);
+    const m=mask.getContext("2d"), r=Math.min(dw,dh);
+    const grad=m.createRadialGradient(dw/2,dh/2,r*0.36,dw/2,dh/2,r*0.55);
+    grad.addColorStop(0,"rgba(0,0,0,1)"); grad.addColorStop(1,"rgba(0,0,0,0)");
+    m.fillStyle=grad; m.fillRect(0,0,dw,dh);
 
     ctx.save();
     ctx.drawImage(face,dx,dy,dw,dh);
@@ -233,45 +222,40 @@ genBtn.addEventListener("click", async ()=>{
 
     loading.style.display="flex"; genBtn.disabled=true;
 
-    const srcB64=await fileToB64(pickedFile);
+    const srcB64 = await fileToB64(pickedFile);
 
-    // детект лица
+    // 1) детект лица на воркере
     let bbox=null;
     try{
-      const fdD=new FormData(); fdD.append("image_b64",srcB64);
-      const r=await fetch(API_BASE+"/api/detect-face",{method:"POST",body:fdD});
+      const fd=new FormData(); fd.append("image_b64", srcB64);
+      const r=await fetch(API_BASE+"/api/detect-face",{method:"POST",body:fd});
       const j=safeJson(await r.text());
       bbox=j?.face?.box||null;
-    }catch(e){ logDebug("detect-face: "+e.message); }
+      logDebug("detect-face: "+(bbox?JSON.stringify(bbox):"нет"));
+    }catch(e){ logDebug("detect error: "+e.message); }
 
-    // строим маску (если получилось)
+    // 2) строим маску (если нашли bbox)
     const maskB64 = bbox ? await buildHeadMaskB64(srcB64, bbox) : "";
 
-    // генерация (файл как есть + маска)
-    const fd=new FormData();
+    // 3) генерация (только inpaint, если есть маска)
+    const fd = new FormData();
     fd.append("role", pickedRole);
     fd.append("image", pickedFile);
     if(maskB64) fd.append("mask_b64", maskB64);
 
     const resp=await fetch(API_BASE+"/api/generate",{method:"POST",body:fd});
     const raw=await resp.text();
-    if(!resp.ok){
-      const j=safeJson(raw); throw new Error((j?.error||raw||("HTTP "+resp.status)) + (j?.details?("\n"+JSON.stringify(j.details,null,2)):""));
-    }
+    if(!resp.ok){ const j=safeJson(raw); throw new Error((j?.error||raw||("HTTP "+resp.status))+(j?.details?("\n"+JSON.stringify(j.details,null,2)):"")); }
     const data=safeJson(raw) || (raw.startsWith("data:image")?{imageBase64:raw.split(",")[1]}:null);
     if(!data?.imageBase64) throw new Error("Пустой ответ API");
 
-    const finalUrl = (bbox ? await composeFaceAndLogo(data.imageBase64, srcB64, bbox)
-                           : await (async()=>{ // без bbox — только лого
-                                const u=await (async()=>{const img=await loadImage("data:image/png;base64,"+data.imageBase64); const c=document.createElement("canvas"); c.width=img.width; c.height=img.height; const x=c.getContext("2d"); x.drawImage(img,0,0); return c.toDataURL("image/png");})();
-                                return u;
-                              })());
-    // если bbox был — composeFaceAndLogo уже наклеил лого; если нет — добавим:
-    const withLogo = bbox ? finalUrl : await (async()=>{ const gen=data.imageBase64; const img=await loadImage(finalUrl); const W=img.width,H=img.height; const c=document.createElement("canvas"); c.width=W; c.height=H; const ctx=c.getContext("2d"); ctx.drawImage(img,0,0); try{ const logo=await loadImage(LOGO_URL); const m=Math.round(Math.min(W,H)*0.02); const w=Math.round(W*0.14), h=Math.round(w*(logo.height/logo.width)); const pad=Math.round(w*0.08); const x=W-w-m, y=H-h-m; ctx.globalAlpha=.95; ctx.fillStyle="rgba(255,255,255,.92)"; ctx.fillRect(x-pad,y-pad,w+pad*2,h+pad*2); ctx.globalAlpha=1; ctx.drawImage(logo,x,y,w,h);}catch(_){} return c.toDataURL("image/png"); })();
+    // 4) мягко возвращаем исходное лицо + лого
+    const finalUrl = bbox ? await composeFaceAndLogo(data.imageBase64, srcB64, bbox)
+                          : "data:image/png;base64,"+data.imageBase64;
 
-    resultImg.src = withLogo;
+    resultImg.src = finalUrl;
     resultBox.style.display="block";
-    download.href = withLogo;
+    download.href = finalUrl;
     download.style.display="inline-block";
   }catch(e){ showError(e.message||String(e)); }
   finally{ loading.style.display="none"; genBtn.disabled=!(pickedFile && pickedRole); }

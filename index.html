@@ -1,146 +1,217 @@
-<script>
-// === универсальный лоадер base64 (png/jpeg/webp) ===
-async function loadB64ImageAny(b64){
-  const types = ["image/png", "image/jpeg", "image/webp"];
-  let err=null;
-  for (const t of types){
-    try{
-      const url=`data:${t};base64,`+b64;
-      const img=new Image(); img.crossOrigin="anonymous";
-      await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=url;});
-      return img;
-    }catch(e){err=e;}
-  }
-  throw err || new Error("Не удалось декодировать imageBase64");
-}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Почувствуй себя журналистом</title>
+  <style>
+    body {
+      font-family: "Inter", sans-serif;
+      background: #fff;
+      color: #1a1a1a;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+    }
+    h1 {
+      font-size: 1.8em;
+      font-weight: 800;
+      margin: 30px 0 10px;
+    }
+    h2 {
+      font-size: 1.2em;
+      font-weight: 600;
+      margin-top: 20px;
+    }
+    .upload-box {
+      border: 2px dashed #ccc;
+      border-radius: 16px;
+      padding: 20px;
+      margin: 20px auto;
+      max-width: 320px;
+      background: #fafafa;
+    }
+    input[type="file"] {
+      margin: 10px 0;
+    }
+    .role-btn {
+      display: block;
+      margin: 8px auto;
+      padding: 14px;
+      width: 280px;
+      border-radius: 12px;
+      border: 2px solid #ccc;
+      background: #fff;
+      font-size: 1em;
+      font-weight: 600;
+      color: #0057ff;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .role-btn.active {
+      border-color: #0057ff;
+      background: #eaf1ff;
+    }
+    .gen-btn {
+      margin: 20px auto;
+      display: block;
+      width: 280px;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: #0057ff;
+      color: white;
+      font-size: 1em;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .result-box {
+      margin: 20px auto;
+      max-width: 340px;
+      padding: 10px;
+      border-radius: 16px;
+      background: #fafafa;
+    }
+    #resultImage {
+      width: 100%;
+      border-radius: 12px;
+    }
+    .footer {
+      font-size: 0.9em;
+      color: #555;
+      margin: 40px 0 20px;
+    }
+    .small {
+      font-size: 0.8em;
+      color: #777;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Почувствуй себя<br>журналистом</h1>
 
-// === чуть умнее расширяем бокс головы ===
-function growBox(b, {padX=0.9, padY=1.3, biasY=0.04}={}){
-  // padX/padY — во сколько раз расширяем от исходного, biasY — смещение вниз (к подбородку/шее)
-  const cx = b.x + b.w/2;
-  const cy = b.y + b.h/2 + biasY*b.h;
-  let w = Math.min(1, b.w*padX);
-  let h = Math.min(1, b.h*padY);
-  let x = cx - w/2, y = cy - h/2;
-  if (x < 0) x = 0; if (y < 0) y = 0;
-  if (x + w > 1) x = 1 - w; if (y + h > 1) y = 1 - h;
-  return { x, y, w, h };
-}
+  <div class="upload-box">
+    <img src="Почувствуй%20себя%20журналистом.png" alt="Факультет журналистики" width="80"><br>
+    <p><strong>Загрузите фотографию</strong><br>JPG, PNG, WEBP</p>
+    <input type="file" id="imageInput" accept="image/*">
+    <p id="uploadStatus" class="small"></p>
+  </div>
 
-// === маска: ЧЁРНОЕ = НЕ редактировать (голова), БЕЛОЕ = редактировать ===
-async function buildHeadMaskB64(srcB64, bbox){
-  const img = await loadB64ImageAny(srcB64); // универсальный лоадер
-  const W=img.width, H=img.height;
-  const c=document.createElement("canvas"); c.width=W; c.height=H;
-  const ctx=c.getContext("2d");
-  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
+  <h2>Выберите героя 👉</h2>
+  <button class="role-btn" data-role="журналист">Журналист</button>
+  <button class="role-btn" data-role="блогер">Блогер</button>
+  <button class="role-btn" data-role="фотограф">Фотограф</button>
 
-  // если детектор не дал бокс — возьмём безопасный «бюст»-бокс по центру
-  let b = bbox || { x:0.23, y:0.14, w:0.54, h:0.66 };
+  <button class="gen-btn" id="generateBtn">Сгенерировать образ</button>
+  <button class="gen-btn" id="downloadBtn" style="background:#777; display:none;">Скачать PNG</button>
 
-  // адаптация к ракурсу: шире — для профиля; больше вниз — чтобы накрыть подбородок/шею
-  const ar = b.w / (b.h || 1e-6);
-  const padX = ar > 0.95 ? 1.9 : 2.2;   // профиль → шире
-  const padY = ar > 1.10 ? 2.2 : 2.6;   // и чуть выше/ниже
-  const big = growBox(b, { padX, padY, biasY: 0.06 });
+  <div id="status" class="small"></div>
+  <div class="result-box" id="resultBox" style="display:none;">
+    <h3>Результат</h3>
+    <img id="resultImage" alt="Результат">
+  </div>
 
-  const x=Math.round(big.x*W), y=Math.round(big.y*H);
-  const w=Math.round(big.w*W), h=Math.round(big.h*H);
-  const cx = x + w/2, cy = y + h/2;
+  <div class="footer">
+    факультет журналистики МГУ<br>
+    <span class="small">© 2025 с любовью KM™</span>
+  </div>
 
-  // эллипс без поворота, но сильно расширенный — накрывает уши/лоб/подбородок
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, w*0.50, h*0.60, 0, 0, Math.PI*2);
-  ctx.clip();
-  ctx.fillStyle="#000000";
-  ctx.fillRect(x,y,w,h);
-  ctx.restore();
+  <script>
+    const workerURL = "https://media-gen-worker.vneboriba.workers.dev";
+    let imageB64 = "";
+    let selectedRole = "";
+    let detectedGender = "unknown";
+    let detectFace = false;
 
-  return c.toDataURL("image/png").split(",")[1] || "";
-}
+    const imageInput = document.getElementById("imageInput");
+    const uploadStatus = document.getElementById("uploadStatus");
+    const generateBtn = document.getElementById("generateBtn");
+    const status = document.getElementById("status");
+    const resultBox = document.getElementById("resultBox");
+    const resultImage = document.getElementById("resultImage");
+    const downloadBtn = document.getElementById("downloadBtn");
 
-// === подмена в местах, где грузили base64 как PNG ===
-async function composeLogoOnly(base64Gen){
-  const gen = await loadB64ImageAny(base64Gen); // <-- заменили
-  const W=gen.width, H=gen.height;
-  const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
-  const ctx=canvas.getContext("2d");
-  ctx.drawImage(gen,0,0,W,H);
-  try {
-    const logo = await loadImage(LOGO_URL);
-    const m = Math.round(Math.min(W,H)*0.02);
-    const tw = Math.round(W * 0.14);
-    const r  = (logo.width||1)/(logo.height||1);
-    const th = Math.round(tw/r);
-    const x = W - tw - m, y = H - th - m;
-    ctx.globalAlpha = 0.95;
-    const p = Math.round(tw*0.08);
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.fillRect(x-p, y-p, tw+p*2, th+p*2);
-    ctx.drawImage(logo, x, y, tw, th);
-    ctx.globalAlpha = 1;
-  } catch {}
-  return canvas.toDataURL("image/png");
-}
+    document.querySelectorAll(".role-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".role-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        selectedRole = btn.dataset.role;
+      });
+    });
 
-async function composeFaceAndLogo(base64Gen, base64Src, bbox){
-  const genImg = await loadB64ImageAny(base64Gen); // <-- заменили
-  const srcImg = await loadB64ImageAny(base64Src); // <-- заменили
-  const W=genImg.width, H=genImg.height;
+    imageInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      uploadStatus.textContent = "⏳ Загружаем...";
+      const reader = new FileReader();
+      reader.onload = async () => {
+        imageB64 = reader.result.split(",")[1];
+        uploadStatus.textContent = `✅ Вы загрузили: ${file.name} (${(file.size/1024/1024).toFixed(1)} МБ)`;
+        await detectGenderAndFace(imageB64);
+      };
+      reader.readAsDataURL(file);
+    });
 
-  const canvas=document.createElement("canvas"); canvas.width=W; canvas.height=H;
-  const ctx=canvas.getContext("2d");
-  ctx.drawImage(genImg, 0, 0, W, H);
+    async function detectGenderAndFace(b64) {
+      try {
+        const fd = new FormData();
+        fd.append("image_b64", b64);
+        const res = await fetch(`${workerURL}/api/gender`, { method: "POST", body: fd });
+        const data = await res.json();
+        detectedGender = data.gender || "unknown";
+        status.textContent = `detect-face: `;
+        const fd2 = new FormData();
+        fd2.append("image_b64", b64);
+        const res2 = await fetch(`${workerURL}/api/detect-face`, { method: "POST", body: fd2 });
+        const data2 = await res2.json();
+        detectFace = !!(data2 && data2.ok);
+        status.textContent += detectFace ? "да" : "нет";
+      } catch (e) {
+        status.textContent = "Ошибка при анализе фото.";
+      }
+    }
 
-  if (bbox){
-    // та же расширенная область для «возврата» исходного лица
-    const ar = bbox.w/(bbox.h||1e-6);
-    const big = growBox(bbox, { padX: ar>0.95?1.8:2.0, padY: ar>1.1?2.0:2.3, biasY:0.05 });
+    generateBtn.addEventListener("click", async () => {
+      if (!imageB64) return alert("Загрузите фото");
+      if (!selectedRole) return alert("Выберите героя");
 
-    const sx=Math.round(big.x*srcImg.width);
-    const sy=Math.round(big.y*srcImg.height);
-    const sw=Math.round(big.w*srcImg.width);
-    const sh=Math.round(big.h*srcImg.height);
-    const dx=Math.round(big.x*W);
-    const dy=Math.round(big.y*H);
-    const dw=Math.round(big.w*W);
-    const dh=Math.round(big.h*H);
+      generateBtn.disabled = true;
+      generateBtn.textContent = "⏳ Генерация...";
+      status.textContent = "Генерируем, пожалуйста, подождите...";
+      resultBox.style.display = "none";
+      downloadBtn.style.display = "none";
 
-    // мягкая маска (перо) для плавного перехода
-    const mask=document.createElement("canvas"); mask.width=dw; mask.height=dh;
-    const mctx=mask.getContext("2d");
-    const R=Math.min(dw,dh);
-    const g=mctx.createRadialGradient(dw/2, dh/2, R*0.34, dw/2, dh/2, R*0.52);
-    g.addColorStop(0,"rgba(0,0,0,1)");
-    g.addColorStop(1,"rgba(0,0,0,0)");
-    mctx.fillStyle=g; mctx.fillRect(0,0,dw,dh);
+      try {
+        const fd = new FormData();
+        fd.append("image_b64", imageB64);
+        fd.append("role", selectedRole);
+        fd.append("gender", detectedGender);
 
-    const face=document.createElement("canvas"); face.width=dw; face.height=dh;
-    const fctx=face.getContext("2d"); fctx.drawImage(srcImg, sx, sy, sw, sh, 0, 0, dw, dh);
+        const res = await fetch(`${workerURL}/api/generate`, { method: "POST", body: fd });
+        const data = await res.json();
 
-    ctx.save();
-    ctx.drawImage(face, dx, dy, dw, dh);
-    ctx.globalCompositeOperation='destination-in';
-    ctx.drawImage(mask, dx, dy);
-    ctx.restore();
-  }
+        if (data.imageBase64) {
+          resultBox.style.display = "block";
+          resultImage.src = `data:image/png;base64,${data.imageBase64}`;
+          downloadBtn.style.display = "block";
+          downloadBtn.onclick = () => {
+            const a = document.createElement("a");
+            a.href = resultImage.src;
+            a.download = "mediastart_result.png";
+            a.click();
+          };
+          status.textContent = "✅ Готово!";
+        } else {
+          status.textContent = "⚠️ Не удалось сгенерировать. " + (data.error || "Ошибка");
+        }
+      } catch (e) {
+        status.textContent = "❌ Ошибка сети или сервера";
+      }
 
-  try {
-    const logo = await loadImage(LOGO_URL);
-    const m = Math.round(Math.min(W,H)*0.02);
-    const tw = Math.round(W * 0.14);
-    const r  = (logo.width||1)/(logo.height||1);
-    const th = Math.round(tw/r);
-    const x = W - tw - m, y = H - th - m;
-    ctx.globalAlpha = 0.95;
-    const p = Math.round(tw*0.08);
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.fillRect(x-p, y-p, tw+p*2, th+p*2);
-    ctx.drawImage(logo, x, y, tw, th);
-    ctx.globalAlpha = 1;
-  } catch {}
-
-  return canvas.toDataURL("image/png");
-}
-</script>
+      generateBtn.disabled = false;
+      generateBtn.textContent = "Сгенерировать образ";
+    });
+  </script>
+</body>
+</html>

@@ -54,7 +54,8 @@
       <img class="logo" src="logo.png" alt="Логотип" onerror="this.style.display='none'">
       <div class="headline">Загрузите фото</div>
       <div class="sub">JPG, PNG, WEBP (до 12 МБ). Лучше портрет по центру, плечи в кадре.</div>
-      <input id="fileInput" type="file" accept="image/*" style="display:none" />
+      <!-- ВАЖНО: запрещаем HEIC/HEIF -->
+      <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" />
       <div id="picked" class="picked"></div>
     </div>
 
@@ -120,6 +121,14 @@ input.addEventListener('change', e => onFile(e.target.files?.[0]));
 function onFile(f){
   if (!f) return;
   if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
+
+  // Явно запрещаем HEIC/HEIF (браузеры не умеют декодировать в canvas)
+  const t = (f.type || "").toLowerCase();
+  const name = (f.name || "").toLowerCase();
+  if (t.includes("heic") || t.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif")) {
+    return showErr("Формат HEIC/HEIF не поддерживается. Пожалуйста, загрузите JPG, PNG или WEBP.\n\nНа iPhone: Настройки → Камера → Форматы → «Наиболее совместимый». Либо сделайте скриншот — он будет в PNG.");
+  }
+
   if (f.size > MAX_UPLOAD_MB*1024*1024) return showErr(`Слишком большой файл (до ${MAX_UPLOAD_MB} МБ).`);
   file = f;
   picked.textContent = `Вы выбрали: ${f.name}`;
@@ -143,11 +152,10 @@ function loadImage(src){
     const img=new Image(); img.crossOrigin="anonymous";
     img.onload=()=>resolve(img);
     img.onerror=()=>reject(new Error("Load failed: "+src));
-    img.src = src.includes("?") ? src : (src + "?v=" + Date.now());
+    img.src = src.includes("?") ? src : (src + (src.startsWith("data:") ? "" : "?v=" + Date.now()));
   });
 }
 async function fileToResizedB64(file){
-  // читаем в ImageBitmap → рисуем в canvas с ресайзом
   const dataUrl = await new Promise((res,rej)=>{
     const r=new FileReader();
     r.onload=()=>res(r.result); r.onerror=()=>rej(new Error("Не удалось прочитать файл"));
@@ -158,8 +166,7 @@ async function fileToResizedB64(file){
   const k = Math.max(W,H) > MAX_SIDE ? MAX_SIDE / Math.max(W,H) : 1;
   W = Math.round(W*k); H = Math.round(H*k);
   const c=document.createElement('canvas'); c.width=W; c.height=H;
-  const ctx=c.getContext('2d');
-  ctx.imageSmoothingQuality = 'high';
+  const ctx=c.getContext('2d'); ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img,0,0,W,H);
   return c.toDataURL('image/png').split(',')[1];
 }
@@ -172,7 +179,7 @@ async function buildFaceNeckMaskForB64(b64) {
 
   ctx.fillStyle = "#ffffff"; ctx.fillRect(0,0,W,H); // редактируем всё...
   // ...кроме чёрного овала (лицо+шея)
-  const cx = W * 0.50, cy = H * 0.44, rx = W * 0.25, ry = H * 0.38; // чуть расширил овал
+  const cx = W * 0.50, cy = H * 0.44, rx = W * 0.25, ry = H * 0.38; // немного шире, чтобы не «задевать» лицо
   ctx.save(); ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); ctx.closePath();
   ctx.shadowColor = "black"; ctx.shadowBlur = Math.max(W,H)*0.012; // мягкое перо
   ctx.fillStyle = "#000000"; ctx.fill(); ctx.restore();

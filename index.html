@@ -40,6 +40,7 @@
 
   .result { margin-top:24px; text-align:center; }
   .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
+  .hint { font-size:12px; color:#6b7280; margin-top:6px; display:none; }
 
   .err { color:#dc2626; font-size:14px; display:none; }
   footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
@@ -77,6 +78,7 @@
 
     <div class="result" id="resultBox" style="display:none;">
       <img id="resultImg" alt="Результат" />
+      <div id="fallbackHint" class="hint">Показано исходное фото (фолбэк). Попробуйте другое фото или ракурс.</div>
     </div>
   </div>
 
@@ -100,6 +102,7 @@ const resultBox = document.getElementById('resultBox');
 const resultImg = document.getElementById('resultImg');
 const download = document.getElementById('download');
 const err = document.getElementById('error');
+const hint = document.getElementById('fallbackHint');
 
 drop.addEventListener('click', ()=>input.click());
 input.addEventListener('change', e => onFile(e.target.files?.[0]));
@@ -185,7 +188,7 @@ async function addLogoToBase64(b64){
 
 btn.addEventListener('click', async ()=>{
   hideErr(); showLoading(true); btn.disabled=true;
-  resultBox.style.display='none'; resultImg.removeAttribute('src'); download.style.display='none';
+  resultBox.style.display='none'; resultImg.removeAttribute('src'); download.style.display='none'; hint.style.display='none';
   try{
     if (!/^https?:\/\//i.test(API_BASE)) throw new Error("API не настроено.");
     if (!file || !role) throw new Error("Загрузите фото и выберите роль.");
@@ -211,6 +214,8 @@ btn.addEventListener('click', async ()=>{
     resultBox.style.display = 'block';
     download.href = finalUrl;
     download.style.display = 'inline-block';
+
+    if (data.fallback) hint.style.display = 'block';
   }catch(e){
     showErr(e.message || String(e));
   }finally{

@@ -96,8 +96,10 @@
 const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // "" если UI и API на одном домене
 const LOGO_URL = "logo.png?v=1";
 const MAX_UPLOAD_MB = 12;
-const MAX_SIDE = 1024;                 // адаптивный ресайз (раньше 1152)
-const PAYLOAD_LIMIT_BYTES = 4.5 * 1024 * 1024; // целимся < 4.5 МБ для Workers AI
+/* ↓↓↓ изменено ↓↓↓ */
+const MAX_SIDE = 896;                      // было 1024 — уменьшаем
+const PAYLOAD_LIMIT_BYTES = 2.3 * 1024 * 1024; // было 4.5 МБ — уменьшаем
+/* ↑↑↑ изменено ↑↑↑ */
 
 /* ===== STATE / DOM ===== */
 let file = null, role = null;

@@ -16,12 +16,20 @@
     header { text-align:center; margin-bottom:24px; }
     .title { font-size:clamp(28px,4vw,44px); font-weight:800; letter-spacing:-0.02em; margin:0; }
 
-    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; text-align:center; transition:.2s; background:#f9fafb; }
+    .uploader {
+      border:2px dashed var(--border); border-radius:24px; padding:32px 20px; text-align:center;
+      transition:.2s; background:#f9fafb;
+    }
     .uploader:hover { border-color:#3b82f6; background:#f0f9ff; }
     .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.95; display:block; margin:0 auto 12px; }
     .uploader .headline { font-size:18px; font-weight:700; }
     .uploader .sub { font-size:14px; color:var(--muted); margin-top:6px; }
     .picked { font-size:14px; margin-top:10px; color:#111827; }
+
+    .pick-controls { margin-top:14px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+    .btn { border:0; border-radius:14px; padding:12px 18px; background:var(--brand); color:#fff; font-weight:800; cursor:pointer; }
+    .btn.secondary { background:#111827; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
 
     .roles-title { text-align:center; font-weight:800; margin-top:24px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
@@ -31,9 +39,6 @@
     .role.active { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.25); }
 
     .actions { margin-top:20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
-    .btn { border:0; border-radius:14px; padding:12px 20px; background:var(--brand); color:#fff; font-weight:800; cursor:pointer; }
-    .btn:disabled { opacity:.6; cursor:not-allowed; }
-
     .loading { display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; }
     .spinner { width:16px; height:16px; border:2px solid #cbd5e1; border-top-color:var(--brand); border-radius:50%; animation:spin 1s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
@@ -41,7 +46,7 @@
     .result { margin-top:24px; text-align:center; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
 
-    .err { color:#dc2626; font-size:14px; display:none; }
+    .err { color:#dc2626; font-size:14px; display:none; text-align:center; }
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
   </style>
 </head>
@@ -54,8 +59,15 @@
     <div class="uploader" id="dropzone">
       <img class="logo" src="./logo.png" alt="Логотип" onerror="this.style.display='none'">
       <div class="headline">Загрузите фото</div>
-      <div class="sub">JPG, PNG, WEBP (до 12 МБ)</div>
-      <input id="fileInput" type="file" accept="image/*" style="display:none" />
+      <div class="sub">JPG, PNG, WEBP (до 12 МБ). Можно перетащить файл или выбрать кнопкой ниже.</div>
+
+      <!-- скрытый input + связанный label (надёжно для iOS/Safari) -->
+      <input id="fileInput" type="file" accept="image/*" capture="environment" style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0);" />
+      <div class="pick-controls">
+        <label for="fileInput" class="btn">Выбрать фото</label>
+        <button id="openPicker" type="button" class="btn secondary">Открыть диалог</button>
+      </div>
+
       <div id="picked" class="picked"></div>
     </div>
 
@@ -87,13 +99,14 @@
 
 <script>
 /* ===== CONFIG ===== */
-const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // твой воркер
+const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // воркер
 const LOGO_URL = "./logo.png?v=1";
 
 /* ===== STATE / DOM ===== */
 let file = null, role = null;
 
 const input = document.getElementById('fileInput');
+const openPicker = document.getElementById('openPicker');
 const drop = document.getElementById('dropzone');
 const picked = document.getElementById('picked');
 const btn = document.getElementById('genBtn');
@@ -103,17 +116,28 @@ const resultImg = document.getElementById('resultImg');
 const download = document.getElementById('download');
 const err = document.getElementById('error');
 
-/* ===== Uploader ===== */
-drop.addEventListener('click', ()=>input.click());
+/* ===== Надёжные способы открыть файл ===== */
+openPicker.addEventListener('click', () => input.click());
+drop.addEventListener('click', (e) => {
+  // клик по пустому месту блока тоже открывает
+  if (e.target === drop) input.click();
+});
 input.addEventListener('change', e => onFile(e.target.files?.[0]));
-drop.addEventListener('dragover', e => e.preventDefault());
-drop.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); });
 
+/* ===== DnD ===== */
+drop.addEventListener('dragover', e => { e.preventDefault(); });
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer?.files?.[0];
+  if (f) onFile(f);
+});
+
+/* ===== UI helpers ===== */
 function onFile(f){
   if (!f) return;
   if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
   if (f.size > 12*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
-  file=f; picked.textContent=\`Вы выбрали: \${f.name}\`;
+  file=f; picked.textContent=`Вы выбрали: ${f.name}`;
   btn.disabled = !role; hideErr();
 }
 document.querySelectorAll('.role').forEach(b=>b.addEventListener('click',()=>{
@@ -121,18 +145,11 @@ document.querySelectorAll('.role').forEach(b=>b.addEventListener('click',()=>{
   b.classList.add('active'); role=b.dataset.role;
   btn.disabled = !file;
 }));
-
-/* ===== Helpers ===== */
 function showErr(m){ err.style.display='block'; err.textContent=m; }
 function hideErr(){ err.style.display='none'; }
 function showLoading(s){ loading.style.display=s?'flex':'none'; }
 
-async function healthCheck(){
-  try{
-    const r = await fetch(API_BASE+"/", { method:"GET" });
-    return r.ok;
-  }catch{ return false; }
-}
+/* ===== Tools ===== */
 function fileToB64(f){
   return new Promise((res,rej)=>{
     const r=new FileReader();
@@ -182,13 +199,6 @@ async function addLogoToBase64(b64){
 }
 
 /* ===== Main ===== */
-(async ()=>{
-  const ok = await healthCheck();
-  if (!ok) {
-    showErr("Воркер недоступен. Проверь домен воркера и CORS.");
-  }
-})();
-
 btn.addEventListener('click', async ()=>{
   hideErr(); showLoading(true); btn.disabled=true;
   resultBox.style.display='none'; resultImg.removeAttribute('src'); download.style.display='none';
@@ -199,7 +209,6 @@ btn.addEventListener('click', async ()=>{
     const fd=new FormData();
     fd.append("role", role);
     fd.append("image_b64", b64);
-    // маску не шлём: воркер умеет строить сам (детектор → VQA → эвристика)
 
     const resp=await fetch(API_BASE+"/api/generate",{method:"POST",body:fd});
     const raw =await resp.text();

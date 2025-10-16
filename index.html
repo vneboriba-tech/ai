@@ -23,15 +23,12 @@ function onFile(f){
   if (!f) return;
   if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
   if (f.size > 12*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
-  file=f;
-  picked.textContent=`Вы выбрали: ${f.name}`;
-  btn.disabled = !role;
-  hideErr();
+  file=f; picked.textContent=`Вы выбрали: ${f.name}`;
+  btn.disabled = !role; hideErr();
 }
 document.querySelectorAll('.role').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.role').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');
-  role=b.dataset.role;
+  b.classList.add('active'); role=b.dataset.role;
   btn.disabled = !file;
 }));
 
@@ -55,65 +52,62 @@ function loadImage(src){
     img.src = src.includes("?") ? src : (src + "?v=" + Date.now());
   });
 }
-function roundRect(ctx, x, y, w, h, r){
-  r = Math.min(r, w/2, h/2);
+function roundRect(ctx,x,y,w,h,r){
+  r=Math.min(r,w/2,h/2);
   ctx.beginPath();
-  ctx.moveTo(x+r, y);
-  ctx.arcTo(x+w, y, x+w, y+h, r);
-  ctx.arcTo(x+w, y+h, x, y+h, r);
-  ctx.arcTo(x, y+h, x, y, r);
-  ctx.arcTo(x, y, x+w, y, r);
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
   ctx.closePath();
 }
+// логотип внизу справа
 async function addLogoToBase64(b64){
   try{
-    const base = await loadImage("data:image/png;base64,"+b64);
-    const logo = await loadImage(LOGO_URL);
-    const W = base.naturalWidth || base.width, H = base.naturalHeight || base.height;
-    const c = document.createElement('canvas'); c.width=W; c.height=H;
-    const ctx = c.getContext('2d');
-    ctx.drawImage(base,0,0,W,H);
-    const margin = Math.round(Math.min(W,H)*0.02);
-    const targetW = Math.round(W*0.18);
-    const ratio = (logo.naturalWidth||logo.width)/(logo.naturalHeight||logo.height);
-    const targetH = Math.round(targetW/ratio);
-    const x = W - targetW - margin;
-    const y = H - targetH - margin;
-    const pad = Math.round(targetW*0.10);
-    const bx = x-pad, by = y-pad, bw = targetW+pad*2, bh = targetH+pad*2;
-    const r = Math.round(Math.min(bw,bh)*0.18);
-    ctx.save(); roundRect(ctx,bx,by,bw,bh,r); ctx.fillStyle="rgba(255,255,255,0.94)"; ctx.fill(); ctx.restore();
+    const base=await loadImage("data:image/png;base64,"+b64);
+    const logo=await loadImage(LOGO_URL);
+    const W=base.naturalWidth||base.width, H=base.naturalHeight||base.height;
+    const c=document.createElement('canvas'); c.width=W; c.height=H;
+    const ctx=c.getContext('2d'); ctx.drawImage(base,0,0,W,H);
+    const margin=Math.round(Math.min(W,H)*0.02);
+    const targetW=Math.round(W*0.18);
+    const ratio=(logo.naturalWidth||logo.width)/(logo.naturalHeight||logo.height);
+    const targetH=Math.round(targetW/ratio);
+    const x=W-targetW-margin, y=H-targetH-margin;
+    const pad=Math.round(targetW*0.10);
+    const bx=x-pad, by=y-pad, bw=targetW+pad*2, bh=targetH+pad*2;
+    const rr=Math.round(Math.min(bw,bh)*0.18);
+    ctx.save(); roundRect(ctx,bx,by,bw,bh,rr); ctx.fillStyle="rgba(255,255,255,0.94)"; ctx.fill(); ctx.restore();
     ctx.globalAlpha=0.98; ctx.drawImage(logo,x,y,targetW,targetH); ctx.globalAlpha=1;
     return c.toDataURL('image/png');
-  }catch(e){
-    console.warn("Logo overlay failed:", e.message);
-    return "data:image/png;base64,"+b64;
-  }
+  }catch(e){ console.warn("Logo overlay failed:",e.message); return "data:image/png;base64,"+b64; }
 }
 
-// строим PNG-маску: чёрное — «не редактировать лицо», белое — «менять фон/одежду»
+// локальная PNG-маска (если получится) — чёрное: лицо не трогаем
 async function buildHeadMaskB64(srcB64, box){
-  const img = await loadImage("data:image/png;base64,"+srcB64);
-  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
-  const c = document.createElement('canvas'); c.width=W; c.height=H;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
-  if (box){
-    // расширяем бокс и рисуем эллипс
-    const cx = (box.x + box.w/2) * W;
-    const cy = (box.y + box.h*0.52) * H;
-    const rx = (box.w * 1.95 * 0.5) * W;
-    const ry = (box.h * 1.40 * 0.5) * H;
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
-    ctx.clip();
-    ctx.fillStyle="#000000";
-    // заполним прямоугольник, но клип эллипс — в итоге эллипс чёрный
-    ctx.fillRect(0,0,W,H);
-    ctx.restore();
-  }
-  return c.toDataURL('image/png').split(',')[1] || "";
+  try{
+    const img=await loadImage("data:image/png;base64,"+srcB64);
+    const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
+    const c=document.createElement('canvas'); c.width=W; c.height=H;
+    const ctx=c.getContext('2d'); ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
+    if(box){
+      const ex=expandBox(box,1.95,1.40);
+      const cx=(ex.x+ex.w/2)*W, cy=(ex.y+ex.h*0.52)*H;
+      const rx=(ex.w*0.5)*W, ry=(ex.h*0.5)*H;
+      ctx.save(); ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); ctx.clip();
+      ctx.fillStyle="#000000"; ctx.fillRect(0,0,W,H); ctx.restore();
+    }
+    return c.toDataURL('image/png').split(',')[1]||"";
+  }catch{ return ""; }
+}
+function expandBox(box,k=1.95,kTall=1.40){
+  const clamp=v=>v<0?0:v>1?1:v;
+  const cx=box.x+box.w/2, cy=box.y+box.h/2;
+  let nw=Math.min(1,box.w*k), nh=Math.min(1,box.h*k*kTall);
+  let nx=cx-nw/2, ny=cy-nh/2;
+  nx=clamp(nx); ny=clamp(ny); if(nx+nw>1)nx=1-nw; if(ny+nh>1)ny=1-nh;
+  return {x:nx,y:ny,w:nw,h:nh};
 }
 
 btn.addEventListener('click', async ()=>{
@@ -123,43 +117,41 @@ btn.addEventListener('click', async ()=>{
     if (!/^https?:\/\//i.test(API_BASE)) throw new Error("API не настроено.");
     if (!file || !role) throw new Error("Загрузите фото и выберите роль.");
 
-    // 1) исходник → b64
     const b64 = await fileToB64(file);
 
-    // 2) бокс лица с воркера (детектор → VQA → эвристика)
+    // 1) попробуем взять бокс у воркера
     let box = null;
     try{
-      const fdD = new FormData(); fdD.append("image_b64", b64);
-      const rD = await fetch(API_BASE + "/api/detect-face", { method:"POST", body: fdD });
-      const tD = await rD.text();
-      const jD = JSON.parse(tD);
+      const fdD=new FormData(); fdD.append("image_b64", b64);
+      const rD=await fetch(API_BASE+"/api/detect-face",{method:"POST",body:fdD});
+      const tD=await rD.text(); const jD=JSON.parse(tD);
       box = jD?.face?.box || null;
-    }catch(e){ /* применим эвристику уже внутри воркера и здесь ещё раз маской не навредим */ }
+    }catch{}
 
-    // 3) маска PNG
-    const maskB64 = await buildHeadMaskB64(b64, box || { x:0.30, y:0.14, w:0.40, h:0.50 });
+    // 2) соберём маску локально (если не выйдет — не шлём: воркер сделает сам)
+    let maskB64 = await buildHeadMaskB64(b64, box || { x:0.30, y:0.14, w:0.40, h:0.50 });
+    if (!maskB64) maskB64 = null;
 
-    // 4) генерация
-    const fdG = new FormData();
+    // 3) генерация
+    const fdG=new FormData();
     fdG.append("role", role);
     fdG.append("image_b64", b64);
-    fdG.append("mask_b64", maskB64);
+    if (maskB64) fdG.append("mask_b64", maskB64); // опционально
 
-    const resp = await fetch(API_BASE + "/api/generate", { method:"POST", body: fdG });
-    const raw  = await resp.text();
+    const resp=await fetch(API_BASE+"/api/generate",{method:"POST",body:fdG});
+    const raw =await resp.text();
     if (!resp.ok){
-      let msg = "Ошибка генерации";
-      try{ const j=JSON.parse(raw); msg = j.error || msg; }catch{}
-      throw new Error(msg);
+      try{ const j=JSON.parse(raw); throw new Error(j.error||"Ошибка генерации"); }
+      catch{ throw new Error("Ошибка генерации"); }
     }
-    const data = JSON.parse(raw);
+    const data=JSON.parse(raw);
     if (!data?.imageBase64) throw new Error("Пустой ответ API");
 
     const finalUrl = await addLogoToBase64(data.imageBase64);
     resultImg.src = finalUrl;
-    resultBox.style.display = 'block';
+    resultBox.style.display='block';
     download.href = finalUrl;
-    download.style.display = 'inline-block';
+    download.style.display='inline-block';
   }catch(e){
     showErr(e.message || String(e));
   }finally{

@@ -1,7 +1,96 @@
-<script>
-const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
-const LOGO_URL = "logo.png?v=1";
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Почувствуй себя журналистом</title>
+  <meta name="description" content="Журналист / Блогер / Фотограф — генерация образа с сохранением лица" />
+  <style>
+    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#2563eb; --border:#e5e7eb; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; min-height:100%; }
+    body { display:flex; flex-direction:column; align-items:center; }
+    .container { width:100%; max-width:960px; padding:24px; }
 
+    header { text-align:center; margin-bottom:24px; }
+    .title { font-size:clamp(28px,4vw,44px); font-weight:800; letter-spacing:-0.02em; margin:0; }
+
+    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; text-align:center; transition:.2s; background:#f9fafb; }
+    .uploader:hover { border-color:#3b82f6; background:#f0f9ff; }
+    .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.95; display:block; margin:0 auto 12px; }
+    .uploader .headline { font-size:18px; font-weight:700; }
+    .uploader .sub { font-size:14px; color:var(--muted); margin-top:6px; }
+    .picked { font-size:14px; margin-top:10px; color:#111827; }
+
+    .roles-title { text-align:center; font-weight:800; margin-top:24px; }
+    .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
+    @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
+    .role { border:1px solid var(--border); border-radius:16px; padding:16px; cursor:pointer; background:#fff; transition:.15s; font-size:16px; font-weight:800; }
+    .role:hover { box-shadow:0 6px 18px rgba(0,0,0,.06); }
+    .role.active { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.25); }
+
+    .actions { margin-top:20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+    .btn { border:0; border-radius:14px; padding:12px 20px; background:var(--brand); color:#fff; font-weight:800; cursor:pointer; }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+
+    .loading { display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; }
+    .spinner { width:16px; height:16px; border:2px solid #cbd5e1; border-top-color:var(--brand); border-radius:50%; animation:spin 1s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    .result { margin-top:24px; text-align:center; }
+    .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
+
+    .err { color:#dc2626; font-size:14px; display:none; }
+    footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1 class="title">Почувствуй себя журналистом</h1>
+    </header>
+
+    <div class="uploader" id="dropzone">
+      <img class="logo" src="./logo.png" alt="Логотип" onerror="this.style.display='none'">
+      <div class="headline">Загрузите фото</div>
+      <div class="sub">JPG, PNG, WEBP (до 12 МБ)</div>
+      <input id="fileInput" type="file" accept="image/*" style="display:none" />
+      <div id="picked" class="picked"></div>
+    </div>
+
+    <div class="roles">
+      <div class="roles-title">Выберите роль</div>
+      <div class="roles-grid">
+        <button class="role" data-role="журналист">Журналист</button>
+        <button class="role" data-role="блогер">Блогер</button>
+        <button class="role" data-role="фотограф">Фотограф</button>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="genBtn" class="btn" disabled>Сгенерировать образ</button>
+      <div id="loading" class="loading" style="display:none"><span class="spinner"></span><span>Обрабатываем…</span></div>
+      <a id="download" class="btn" download="result.png" style="display:none;background:#10b981;">Скачать PNG</a>
+      <div id="error" class="err"></div>
+    </div>
+
+    <div class="result" id="resultBox" style="display:none;">
+      <img id="resultImg" alt="Результат" />
+    </div>
+  </div>
+
+  <footer>© 2025 факультет журналистики МГУ</footer>
+
+  <!-- предзагрузка лого для канваса -->
+  <img id="logoPreload" src="./logo.png?v=1" alt="" style="display:none" crossorigin="anonymous" />
+
+<script>
+/* ===== CONFIG ===== */
+const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // твой воркер
+const LOGO_URL = "./logo.png?v=1";
+
+/* ===== STATE / DOM ===== */
 let file = null, role = null;
 
 const input = document.getElementById('fileInput');
@@ -14,6 +103,7 @@ const resultImg = document.getElementById('resultImg');
 const download = document.getElementById('download');
 const err = document.getElementById('error');
 
+/* ===== Uploader ===== */
 drop.addEventListener('click', ()=>input.click());
 input.addEventListener('change', e => onFile(e.target.files?.[0]));
 drop.addEventListener('dragover', e => e.preventDefault());
@@ -23,7 +113,7 @@ function onFile(f){
   if (!f) return;
   if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
   if (f.size > 12*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
-  file=f; picked.textContent=`Вы выбрали: ${f.name}`;
+  file=f; picked.textContent=\`Вы выбрали: \${f.name}\`;
   btn.disabled = !role; hideErr();
 }
 document.querySelectorAll('.role').forEach(b=>b.addEventListener('click',()=>{
@@ -32,10 +122,17 @@ document.querySelectorAll('.role').forEach(b=>b.addEventListener('click',()=>{
   btn.disabled = !file;
 }));
 
+/* ===== Helpers ===== */
 function showErr(m){ err.style.display='block'; err.textContent=m; }
 function hideErr(){ err.style.display='none'; }
 function showLoading(s){ loading.style.display=s?'flex':'none'; }
 
+async function healthCheck(){
+  try{
+    const r = await fetch(API_BASE+"/", { method:"GET" });
+    return r.ok;
+  }catch{ return false; }
+}
 function fileToB64(f){
   return new Promise((res,rej)=>{
     const r=new FileReader();
@@ -62,11 +159,11 @@ function roundRect(ctx,x,y,w,h,r){
   ctx.arcTo(x,y,x+w,y,r);
   ctx.closePath();
 }
-// логотип внизу справа
 async function addLogoToBase64(b64){
   try{
     const base=await loadImage("data:image/png;base64,"+b64);
-    const logo=await loadImage(LOGO_URL);
+    let logoEl = document.getElementById('logoPreload');
+    let logo = (logoEl && logoEl.naturalWidth>0) ? logoEl : await loadImage(LOGO_URL);
     const W=base.naturalWidth||base.width, H=base.naturalHeight||base.height;
     const c=document.createElement('canvas'); c.width=W; c.height=H;
     const ctx=c.getContext('2d'); ctx.drawImage(base,0,0,W,H);
@@ -84,61 +181,27 @@ async function addLogoToBase64(b64){
   }catch(e){ console.warn("Logo overlay failed:",e.message); return "data:image/png;base64,"+b64; }
 }
 
-// локальная PNG-маска (если получится) — чёрное: лицо не трогаем
-async function buildHeadMaskB64(srcB64, box){
-  try{
-    const img=await loadImage("data:image/png;base64,"+srcB64);
-    const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
-    const c=document.createElement('canvas'); c.width=W; c.height=H;
-    const ctx=c.getContext('2d'); ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
-    if(box){
-      const ex=expandBox(box,1.95,1.40);
-      const cx=(ex.x+ex.w/2)*W, cy=(ex.y+ex.h*0.52)*H;
-      const rx=(ex.w*0.5)*W, ry=(ex.h*0.5)*H;
-      ctx.save(); ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); ctx.clip();
-      ctx.fillStyle="#000000"; ctx.fillRect(0,0,W,H); ctx.restore();
-    }
-    return c.toDataURL('image/png').split(',')[1]||"";
-  }catch{ return ""; }
-}
-function expandBox(box,k=1.95,kTall=1.40){
-  const clamp=v=>v<0?0:v>1?1:v;
-  const cx=box.x+box.w/2, cy=box.y+box.h/2;
-  let nw=Math.min(1,box.w*k), nh=Math.min(1,box.h*k*kTall);
-  let nx=cx-nw/2, ny=cy-nh/2;
-  nx=clamp(nx); ny=clamp(ny); if(nx+nw>1)nx=1-nw; if(ny+nh>1)ny=1-nh;
-  return {x:nx,y:ny,w:nw,h:nh};
-}
+/* ===== Main ===== */
+(async ()=>{
+  const ok = await healthCheck();
+  if (!ok) {
+    showErr("Воркер недоступен. Проверь домен воркера и CORS.");
+  }
+})();
 
 btn.addEventListener('click', async ()=>{
   hideErr(); showLoading(true); btn.disabled=true;
   resultBox.style.display='none'; resultImg.removeAttribute('src'); download.style.display='none';
   try{
-    if (!/^https?:\/\//i.test(API_BASE)) throw new Error("API не настроено.");
     if (!file || !role) throw new Error("Загрузите фото и выберите роль.");
-
     const b64 = await fileToB64(file);
 
-    // 1) попробуем взять бокс у воркера
-    let box = null;
-    try{
-      const fdD=new FormData(); fdD.append("image_b64", b64);
-      const rD=await fetch(API_BASE+"/api/detect-face",{method:"POST",body:fdD});
-      const tD=await rD.text(); const jD=JSON.parse(tD);
-      box = jD?.face?.box || null;
-    }catch{}
+    const fd=new FormData();
+    fd.append("role", role);
+    fd.append("image_b64", b64);
+    // маску не шлём: воркер умеет строить сам (детектор → VQA → эвристика)
 
-    // 2) соберём маску локально (если не выйдет — не шлём: воркер сделает сам)
-    let maskB64 = await buildHeadMaskB64(b64, box || { x:0.30, y:0.14, w:0.40, h:0.50 });
-    if (!maskB64) maskB64 = null;
-
-    // 3) генерация
-    const fdG=new FormData();
-    fdG.append("role", role);
-    fdG.append("image_b64", b64);
-    if (maskB64) fdG.append("mask_b64", maskB64); // опционально
-
-    const resp=await fetch(API_BASE+"/api/generate",{method:"POST",body:fdG});
+    const resp=await fetch(API_BASE+"/api/generate",{method:"POST",body:fd});
     const raw =await resp.text();
     if (!resp.ok){
       try{ const j=JSON.parse(raw); throw new Error(j.error||"Ошибка генерации"); }
@@ -160,3 +223,5 @@ btn.addEventListener('click', async ()=>{
   }
 });
 </script>
+</body>
+</html>

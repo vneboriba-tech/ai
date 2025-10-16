@@ -97,7 +97,7 @@
 
 <script>
 /* ===== CONFIG ===== */
-const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // или "" если UI и API на одном домене
+const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
 const LOGO_URL = "logo.png?v=1";
 
 /* ===== STATE / DOM ===== */
@@ -144,7 +144,13 @@ document.querySelectorAll('.role').forEach(b => b.addEventListener('click', () =
 }));
 
 /* ===== Helpers ===== */
-function showErr(m){ err.style.display='block'; err.innerText = m; }
+function normalizeError(e){
+  if (!e) return "Unknown error";
+  if (e instanceof Error && e.message) return e.message;
+  if (typeof e === "string") return e;
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+function showErr(m){ err.style.display='block'; err.innerText = normalizeError(m); }
 function hideErr(){ err.style.display='none'; err.innerText=""; }
 function showLoading(s){ loading.style.display = s ? 'flex' : 'none'; }
 
@@ -160,7 +166,7 @@ function loadImage(src){
   return new Promise((resolve,reject)=>{
     const img=new Image(); img.crossOrigin="anonymous";
     img.onload=()=>resolve(img);
-    img.onerror=()=>reject(new Error("Load failed: "+src));
+    img.onerror=()=>reject(new Error("Не удалось загрузить изображение: " + (src?.slice?.(0,60)||src)));
     img.src = src.includes("?") ? src : (src + "?v=" + Date.now());
   });
 }
@@ -194,13 +200,13 @@ async function addLogoToBase64(b64OrDataUrl){
     ctx.save(); roundRect(ctx,bx,by,bw,bh,rr); ctx.fillStyle="rgba(255,255,255,0.94)"; ctx.fill(); ctx.restore();
     ctx.globalAlpha=0.98; ctx.drawImage(logo,x,y,targetW,targetH); ctx.globalAlpha=1;
     return c.toDataURL('image/png');
-  }catch{ 
+  }catch(e){ 
+    console.error("addLogoToBase64 error:", e);
     return /^data:image\//i.test(b64OrDataUrl) ? b64OrDataUrl : "data:image/png;base64,"+b64OrDataUrl;
   }
 }
 
 /* ======== FREE FACE-LOCK (client-side) ======== */
-// Mediapipe FaceDetection (BlazeFace)
 let faceDetector = null;
 async function ensureFaceDetector(){
   if (faceDetector) return faceDetector;
@@ -250,7 +256,6 @@ function compositeFaceEllipse({srcImg, dstImg, srcBox, dstBox, feather=0.25}) {
   const sAbs = { x: Math.round(srcBox.x*sW), y: Math.round(srcBox.y*sH), w: Math.round(srcBox.w*sW), h: Math.round(srcBox.h*sH) };
   const dAbs = { x: Math.round(dstBox.x*W), y: Math.round(dstBox.y*H), w: Math.round(dstBox.w*W), h: Math.round(dstBox.h*H) };
 
-  // маска с мягкими краями
   const mask = document.createElement('canvas'); mask.width=dAbs.w; mask.height=dAbs.h;
   const mctx = mask.getContext('2d');
   const rx = dAbs.w/2, ry = dAbs.h/2, cx = rx, cy = ry;
@@ -260,26 +265,28 @@ function compositeFaceEllipse({srcImg, dstImg, srcBox, dstBox, feather=0.25}) {
   mctx.fillStyle = grd;
   mctx.fillRect(0,0,dAbs.w,dAbs.h);
 
-  // вырезаем лицо из исходника
   const facePatch = document.createElement('canvas'); facePatch.width=dAbs.w; facePatch.height=dAbs.h;
   const fctx = facePatch.getContext('2d');
   fctx.drawImage(srcImg, sAbs.x, sAbs.y, sAbs.w, sAbs.h, 0, 0, dAbs.w, dAbs.h);
 
-  // применяем маску
   const masked = document.createElement('canvas'); masked.width=dAbs.w; masked.height=dAbs.h;
   const mx = masked.getContext('2d');
   mx.drawImage(facePatch, 0, 0);
   mx.globalCompositeOperation = 'destination-in';
   mx.drawImage(mask, 0, 0);
 
-  // финальное наложение
   ctx.drawImage(masked, dAbs.x, dAbs.y);
 
   return c.toDataURL('image/png');
 }
 async function preserveFaceOnResult(originalDataUrlOrB64, generatedDataUrlOrB64){
   const toUrl = (x)=> /^data:image\//i.test(x) ? x : `data:image/*;base64,${x}`;
-  const load = (url)=> new Promise((ok, err)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>ok(i); i.onerror=err; i.src=url; });
+  const load = (url)=> new Promise((ok, reject)=>{
+    const i=new Image(); i.crossOrigin="anonymous";
+    i.onload=()=>ok(i);
+    i.onerror=()=>reject(new Error("Не удалось загрузить изображение для композитинга"));
+    i.src=url;
+  });
 
   const srcImg = await load(toUrl(originalDataUrlOrB64));
   const dstImg = await load(toUrl(generatedDataUrlOrB64));
@@ -304,7 +311,7 @@ btn.addEventListener('click', async ()=>{
     const b64 = await fileToB64(file);
     const fd  = new FormData();
     fd.append("role", role);
-    fd.append("image_b64", b64); // для бэка не важно, но пусть будет
+    fd.append("image_b64", b64); // не обязательно для FLUX, но пусть будет
 
     const ctl = new AbortController();
     const timeout = setTimeout(()=>ctl.abort(), 90000);
@@ -328,17 +335,25 @@ btn.addEventListener('click', async ()=>{
     // 1) «приклеиваем» лицо пользователя к сгенерированному портрету (клиентский бесплатный трюк)
     const userDataUrl = `data:image/*;base64,${b64}`;
     const genDataUrl  = `data:image/*;base64,${data.imageBase64}`;
-    const faceLockedDataUrl = await preserveFaceOnResult(userDataUrl, genDataUrl);
+
+    let faceLockedDataUrl = null;
+    try {
+      faceLockedDataUrl = await preserveFaceOnResult(userDataUrl, genDataUrl);
+    } catch (compErr) {
+      console.error("preserveFaceOnResult error:", compErr);
+      faceLockedDataUrl = genDataUrl; // мягкий фолбэк: показываем как есть
+    }
 
     // 2) накладываем логотип поверх
-    const finalUrl = await addLogoToBase64(faceLockedDataUrl); // умеет принимать dataURL
+    const finalUrl = await addLogoToBase64(faceLockedDataUrl); // принимает dataURL
 
     resultImg.src = finalUrl;
     resultBox.style.display='block';
     download.href = finalUrl;
     download.style.display='inline-block';
   }catch(e){
-    showErr(e.message || String(e));
+    console.error(e);
+    showErr(e);
   }finally{
     showLoading(false);
     btn.disabled = false;

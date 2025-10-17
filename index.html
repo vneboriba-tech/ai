@@ -12,15 +12,19 @@
       font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; min-height:100%; }
     body { display:flex; flex-direction:column; align-items:center; }
     .container { width:100%; max-width:960px; padding:24px; }
+
     header { text-align:center; margin-bottom:24px; }
     .title { font-size:clamp(28px,4vw,44px); font-weight:800; letter-spacing:-0.02em; margin:0; }
 
-    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; text-align:center; transition:.2s; background:#f9fafb; }
+    .uploader { border:2px dashed var(--border); border-radius:24px; padding:32px 20px; text-align:center; transition:.2s; background:#f9fafb; }
     .uploader:hover { border-color:#3b82f6; background:#f0f9ff; }
     .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.95; display:block; margin:0 auto 12px; }
     .uploader .headline { font-size:18px; font-weight:700; }
     .uploader .sub { font-size:14px; color:var(--muted); margin-top:6px; }
     .picked { font-size:14px; margin-top:10px; color:#111827; }
+
+    .pick-btn { margin-top:12px; border:1px solid var(--border); border-radius:12px; padding:10px 16px; background:#fff; cursor:pointer; font-weight:700; }
+    .pick-btn:active { transform:translateY(1px); }
 
     .roles-title { text-align:center; font-weight:800; margin-top:24px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
@@ -44,19 +48,28 @@
     .ok { color:#10b981; font-size:14px; text-align:center; }
     .err { color:#dc2626; font-size:14px; white-space:pre-wrap; text-align:center; display:none; }
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
+    /* скрытый, но доступный инпут — важно для iOS/Safari */
+    #fileInput {
+      position:absolute !important;
+      width:1px;height:1px;overflow:hidden;clip:rect(1px,1px,1px,1px);
+      clip-path:inset(50%); white-space:nowrap; border:0; padding:0; margin:-1px;
+    }
+    .uploader-label { display:block; cursor:pointer; }
   </style>
 </head>
 <body>
   <div class="container">
     <header><h1 class="title">Почувствуй себя журналистом</h1></header>
 
-    <div class="uploader" id="dropzone">
+    <!-- uploader как LABEL + реальная кнопка: самые совместимые способы вызова файлового диалога -->
+    <label class="uploader uploader-label" id="dropzone" for="fileInput" tabindex="0" role="button" aria-label="Загрузите фото">
       <img class="logo" src="logo.png" alt="Логотип" onerror="this.style.display='none'">
       <div class="headline">Загрузите фото</div>
       <div class="sub">JPG, PNG, WEBP (до 12 МБ). Лучше портрет по центру, плечи в кадре.</div>
-      <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" />
+      <button type="button" class="pick-btn" id="pickBtn">Выбрать фото</button>
       <div id="picked" class="picked"></div>
-    </div>
+    </label>
+    <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" aria-hidden="true" />
 
     <div class="roles">
       <div class="roles-title">Выберите роль</div>
@@ -82,37 +95,26 @@
 
   <footer>© 2025 факультет журналистики МГУ</footer>
 
-  <!-- Предзагрузка лого -->
   <img id="logoPreload" src="logo.png?v=1" alt="" style="display:none" crossorigin="anonymous" />
 
 <script>
 /* ===== CONFIG ===== */
-const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";  // ваш воркер
+const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
 const LOGO_URL = "logo.png?v=1";
 const MAX_UPLOAD_MB = 12;
 const MAX_SIDE = 1024;
 const PAYLOAD_LIMIT_BYTES = 4.5 * 1024 * 1024;
 
-// Шаблонные PNG (фон и тело) — одинаковых размеров, лицо в шаблоне либо «дырка» (альфа),
-// либо «манекен» (гладкое кожное пятно)
 const ROLES = {
-  "журналист": {
-    bg:  "bg_journalist.png",
-    tpl: "tpl_journalist.png" // можно без дырки — найдём область лица автоматически
-  },
-  "блогер": {
-    bg:  "bg_blogger.png",
-    tpl: "tpl_blogger.png"
-  },
-  "фотограф": {
-    bg:  "bg_photographer.png",
-    tpl: "tpl_photographer.png"
-  },
+  "журналист":  { bg:"bg_journalist.png",  tpl:"tpl_journalist.png"  },
+  "блогер":     { bg:"bg_blogger.png",     tpl:"tpl_blogger.png"     },
+  "фотограф":   { bg:"bg_photographer.png",tpl:"tpl_photographer.png"}
 };
 
 /* ===== STATE / DOM ===== */
 let file = null, role = null;
 const input = document.getElementById('fileInput');
+const pickBtn = document.getElementById('pickBtn');
 const drop = document.getElementById('dropzone');
 const picked = document.getElementById('picked');
 const btn = document.getElementById('genBtn');
@@ -123,12 +125,18 @@ const resultImg = document.getElementById('resultImg');
 const download = document.getElementById('download');
 const err = document.getElementById('error');
 
-/* ===== Uploader ===== */
-drop.addEventListener('click', ()=>input.click());
+/* ===== File dialog triggers (надёжно на iOS/Android/Desktop) ===== */
+pickBtn.addEventListener('click', () => input.click());
+drop.addEventListener('click', (e) => {
+  // если кликнули не по кнопке/ссылке — тоже открываем
+  if (e.target !== pickBtn) input.click();
+});
+drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
 drop.addEventListener('dragover', e => e.preventDefault());
 drop.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); });
 input.addEventListener('change', e => onFile(e.target.files?.[0]));
 
+/* ===== Uploader logic ===== */
 function onFile(f){
   if (!f) return;
   if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
@@ -143,7 +151,7 @@ document.querySelectorAll('.role').forEach(b => b.addEventListener('click', () =
   b.classList.add('active'); role = b.dataset.role; btn.disabled = !(file && role);
 }));
 
-/* ===== Helpers (UI) ===== */
+/* ===== UI helpers ===== */
 function showErr(m){ err.style.display='block'; err.innerText = m; statusOk.style.display='none'; }
 function hideErr(){ err.style.display='none'; err.innerText=""; }
 function showLoading(s){ loading.style.display = s ? 'flex' : 'none'; statusOk.style.display='none'; }
@@ -185,14 +193,13 @@ async function fileToResizedB64(file){
   return b64;
 }
 
-/* === (1) Поиск окна лица: альфа-дырка ИЛИ "манекенная" кожа === */
+/* === поиск окна лица в шаблоне (альфа или “манекен”) === */
 async function findHoleInTemplate(tplImg, sampleStep=3, alphaThresh=10){
   const W = tplImg.naturalWidth||tplImg.width, H=tplImg.naturalHeight||tplImg.height;
   const c=document.createElement('canvas'); c.width=W; c.height=H;
   const ctx=c.getContext('2d'); ctx.drawImage(tplImg,0,0,W,H);
   const imgData=ctx.getImageData(0,0,W,H), data=imgData.data;
 
-  // 1) Альфа-дырка
   let minX=W, minY=H, maxX=0, maxY=0, foundAlpha=false;
   for(let y=0;y<H;y+=sampleStep){
     for(let x=0;x<W;x+=sampleStep){
@@ -208,7 +215,7 @@ async function findHoleInTemplate(tplImg, sampleStep=3, alphaThresh=10){
     return {x:minX,y=minY,w:maxX-minX,h:maxY-minY,W,H,source:"alpha"};
   }
 
-  // 2) Поиск «кожного» гладкого пятна по градиенту (очень простая эвристика)
+  // простая эвристика «гладкой кожи» по малому градиенту + тон/насыщенность
   const grad = new Float32Array(W*H);
   const sobel=(x,y,ch)=>{
     const idx=(yy,xx)=>((yy*W+xx)<<2)+ch;
@@ -225,8 +232,7 @@ async function findHoleInTemplate(tplImg, sampleStep=3, alphaThresh=10){
   const isSkin=(r,g,b)=>{
     const rn=r/255, gn=g/255, bn=b/255;
     const max=Math.max(rn,gn,bn), min=Math.min(rn,gn,bn);
-    const v=max, s=max===0?0:(max-min)/max;
-    let h=0;
+    const v=max, s=max===0?0:(max-min)/max; let h=0;
     if(max!==min){
       if(max===rn) h=(60*((gn-bn)/(max-min))+360)%360;
       else if(max===gn) h=60*((bn-rn)/(max-min))+120;
@@ -244,23 +250,15 @@ async function findHoleInTemplate(tplImg, sampleStep=3, alphaThresh=10){
     }
   }
   if(foundSkin){
-    const cx=(minX+maxX)/2, cy=(minY+maxY)/2;
-    const centerOK = (Math.abs(cx-W/2) < W*0.25) && (Math.abs(cy-H/2) < H*0.25);
-    if(centerOK){
-      const pad=Math.round(Math.max(W,H)*0.02);
-      minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad);
-      maxX=Math.min(W,maxX+pad); maxY=Math.min(H,maxY+pad);
-      let w=maxX-minX, h=maxY-minY;
-      const targetRatio=0.75;
-      if(h/w < targetRatio){ const need=Math.round(w*targetRatio); const add=need-h;
-        minY=Math.max(0,minY-Math.round(add/2)); maxY=Math.min(H,maxY+Math.round(add/2)); }
-      return {x:minX,y=minY,w:maxX-minX,h:maxY-minY,W,H,source:"skin-lowtex"};
-    }
+    const pad=Math.round(Math.max(W,H)*0.02);
+    minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad);
+    maxX=Math.min(W,maxX+pad); maxY=Math.min(H,maxY+pad);
+    return {x:minX,y=minY,w:maxX-minX,h=maxY-minY,W,H,source:"skin"};
   }
   return null;
 }
 
-/* === Отрисовка логотипа === */
+/* === логотип === */
 function roundRect(ctx,x,y,w,h,r){
   r=Math.min(r,w/2,h/2);
   ctx.beginPath(); ctx.moveTo(x+r,y);
@@ -292,7 +290,7 @@ async function addLogoToBase64(b64){
   }catch{ return "data:image/png;base64,"+b64; }
 }
 
-/* === Локальный коллаж (фон + лицо + тело/атрибуты) === */
+/* === локальный коллаж === */
 async function composeLocalComposite(srcB64, roleKey){
   const roleCfg = ROLES[roleKey]; if(!roleCfg) throw new Error("нет шаблонов для роли");
   const src = await loadImage("data:image/*;base64,"+srcB64);
@@ -303,25 +301,19 @@ async function composeLocalComposite(srcB64, roleKey){
   const out=document.createElement('canvas'); out.width=W; out.height=H;
   const ctx=out.getContext('2d'); ctx.imageSmoothingQuality='high';
 
-  // 1) фон
   ctx.drawImage(bg,0,0,W,H);
 
-  // 2) пытаемся попасть лицом в окно шаблона
   if (tpl){
     const hole = await findHoleInTemplate(tpl);
     if (hole){
       const sW = src.naturalWidth||src.width, sH = src.naturalHeight||src.height;
-      // подгоним по высоте «окна», с небольшим запасом
       const scale = (hole.h / sH) * 1.08;
-      const newW = Math.round(sW * scale);
-      const newH = Math.round(sH * scale);
+      const newW = Math.round(sW * scale), newH = Math.round(sH * scale);
       const cx = hole.x + hole.w/2, cy = hole.y + hole.h/2;
       const sx = Math.round(cx - newW/2), sy = Math.round(cy - newH/2);
 
-      // рисуем лицо
       ctx.drawImage(src, sx, sy, newW, newH);
 
-      // мягко ограничим эллипсом область лица (feather)
       const feather = document.createElement('canvas'); feather.width=W; feather.height=H;
       const fctx = feather.getContext('2d');
       fctx.fillStyle="black"; fctx.fillRect(0,0,W,H);
@@ -331,32 +323,17 @@ async function composeLocalComposite(srcB64, roleKey){
       fctx.fillStyle="white"; fctx.fill(); fctx.restore();
       ctx.save(); ctx.globalCompositeOperation="destination-in"; ctx.drawImage(feather,0,0); ctx.restore();
 
-      // шаблон поверх (одежда/микрофон/бейдж)
       ctx.globalCompositeOperation="source-over";
       ctx.drawImage(tpl,0,0,W,H);
 
       return out.toDataURL('image/png').split(',')[1];
     }
   }
-
-  // если не нашли окно — просто поверх шаблон
   ctx.drawImage(tpl,0,0,W,H);
   return out.toDataURL('image/png').split(',')[1];
 }
 
-/* ===== ИИ-вызов (если доступен backend). Всегда пытаемся, потом fallback коллаж ===== */
-async function tryAI(srcB64, roleKey){
-  const mask = await buildFaceNeckMaskForB64(srcB64); // защитим лицо/шею
-  const fd=new FormData(); fd.append("role", roleKey); fd.append("image_b64", srcB64); fd.append("mask_b64", mask);
-  const url=(API_BASE||"").replace(/\/+$/,"")+"/api/generate";
-  const resp=await fetch(url,{method:"POST",body:fd});
-  const raw=await resp.text(); let data=null; try{data=JSON.parse(raw);}catch{}
-  if(!resp.ok) throw new Error(data?.details || data?.error || raw || ("HTTP "+resp.status));
-  if(!data?.imageBase64) throw new Error("empty AI response");
-  return data.imageBase64;
-}
-
-// маска лицо+шея (чёрное — НЕ редактировать)
+/* === маска лицо+шея для ИИ === */
 async function buildFaceNeckMaskForB64(b64) {
   const img = await loadImage("data:image/*;base64," + b64);
   const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
@@ -370,6 +347,18 @@ async function buildFaceNeckMaskForB64(b64) {
   return c.toDataURL('image/png').split(',')[1];
 }
 
+/* === ИИ (если доступен backend), затем fallback === */
+async function tryAI(srcB64, roleKey){
+  const mask = await buildFaceNeckMaskForB64(srcB64);
+  const fd=new FormData(); fd.append("role", roleKey); fd.append("image_b64", srcB64); fd.append("mask_b64", mask);
+  const url=(API_BASE||"").replace(/\/+$/,"")+"/api/generate";
+  const resp=await fetch(url,{method:"POST",body:fd});
+  const raw=await resp.text(); let data=null; try{data=JSON.parse(raw);}catch{}
+  if(!resp.ok) throw new Error(data?.details || data?.error || raw || ("HTTP "+resp.status));
+  if(!data?.imageBase64) throw new Error("empty AI response");
+  return data.imageBase64;
+}
+
 /* ===== Generate ===== */
 btn.addEventListener('click', async ()=>{
   hideErr(); showLoading(true); btn.disabled = true; statusOk.style.display='none';
@@ -378,19 +367,13 @@ btn.addEventListener('click', async ()=>{
   try{
     if (!file || !role) throw new Error("Загрузите фото и выберите роль.");
 
-    // 1) подготавливаем лёгкое исходное лицо
     const srcB64 = await fileToResizedB64(file);
 
-    // 2) пробуем ИИ (если воркер настроен и даёт картинку)
     let outB64 = null;
-    try { outB64 = await tryAI(srcB64, role); } catch(e){ /* тихо падаем в коллаж */ }
-
-    // 3) если ИИ не дал картинку — локальный коллаж
+    try { outB64 = await tryAI(srcB64, role); } catch(e){ /* fallback ниже */ }
     if (!outB64) outB64 = await composeLocalComposite(srcB64, role);
 
-    // 4) добавляем логотип
     const finalUrl = await addLogoToBase64(outB64);
-
     resultImg.src = finalUrl;
     resultBox.style.display='block';
     download.href = finalUrl;

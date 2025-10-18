@@ -61,7 +61,7 @@
     <div class="roles">
       <div class="roles-title">Выберите роль</div>
       <div class="roles-grid">
-        <button class="role" data-role="журналист">Журналист</button>
+        <button class="role active" data-role="журналист">Журналист</button>
         <button class="role" data-role="блогер">Блогер</button>
         <button class="role" data-role="фотограф">Фотограф</button>
       </div>
@@ -88,10 +88,10 @@
 const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // твой Cloudflare Worker
 const LOGO_URL = "logo.png?v=1";
 const MAX_UPLOAD_MB = 12;
-const MAX_SIDE = 1024;                       // лимит геометрии перед отправкой в воркер
-const PAYLOAD_LIMIT_BYTES = 4.5 * 1024 * 1024; // <~4.5МБ для стабильного JSON в воркер
+const MAX_SIDE = 1024;
+const PAYLOAD_LIMIT_BYTES = 4.5 * 1024 * 1024;
 
-// Позиции овала (лицо+шея) в шаблоне — в долях от размеров фона
+// PNG-шаблоны (именно .png, имена регистрозависимы)
 const TEMPLATE = {
   "журналист":   { bg: "bg_journalist.png",   face: {cx:.50, cy:.38, rx:.15, ry:.21} },
   "блогер":      { bg: "bg_blogger.png",      face: {cx:.50, cy:.40, rx:.16, ry:.22} },
@@ -137,7 +137,7 @@ document.querySelectorAll('.role').forEach(b => b.addEventListener('click', () =
   document.querySelectorAll('.role').forEach(x => x.classList.remove('active'));
   b.classList.add('active');
   role = b.dataset.role;
-  autoGenerate(); // при смене роли — тоже автогенерация
+  autoGenerate(); // при смене роли — автогенерация
 }));
 
 /* ===== UI helpers ===== */
@@ -151,7 +151,8 @@ function loadImage(src){
     const img=new Image(); img.crossOrigin="anonymous";
     img.onload=()=>resolve(img);
     img.onerror=()=>reject(new Error("Load failed: "+src));
-    img.src = src.includes("data:") ? src : (src + (src.includes("?")?"":"?v=" + Date.now()));
+    // обязательный cache-busting и для data: не добавляем
+    img.src = src.startsWith("data:") ? src : (src + (src.includes("?") ? "" : ("?v=" + Date.now())));
   });
 }
 function b64Bytes(b64){
@@ -225,7 +226,7 @@ async function callAI(imageB64, maskB64){
   if (maskB64) fd.append("mask_b64", maskB64);
 
   const ctl = new AbortController();
-  const t = setTimeout(()=>ctl.abort(), 60000); // 60s
+  const t = setTimeout(()=>ctl.abort(), 60000);
   const url = (API_BASE||"") + "/api/generate";
   const resp = await fetch(url, { method:"POST", body:fd, signal:ctl.signal }).catch(()=>null);
   clearTimeout(t);
@@ -237,46 +238,57 @@ async function callAI(imageB64, maskB64){
   return null;
 }
 
-/* ===== Local collage fallback ===== */
+/* ===== Local collage (FIXED) ===== */
 async function composeLocally(imageB64){
-  // 1) грузим фон
+  // 1) фон по роли
   const tpl = TEMPLATE[role] || TEMPLATE["журналист"];
   const bg = await loadImage(tpl.bg);
 
-  // 2) грузим лицо
+  // 2) исходное лицо
   const face = await loadImage("data:image/*;base64,"+imageB64);
 
-  // 3) целевое канвас = размер фона
+  // 3) итоговый канвас = размер фона
   const W = bg.naturalWidth||bg.width, H = bg.naturalHeight||bg.height;
-  const c = document.createElement('canvas'); c.width=W; c.height=H;
-  const ctx = c.getContext('2d');
-  ctx.drawImage(bg,0,0,W,H);
+  const out = document.createElement('canvas'); out.width=W; out.height=H;
+  const octx = out.getContext('2d');
+  octx.drawImage(bg,0,0,W,H); // фон остаётся!
 
-  // 4) вставляем лицо по эллипсу
+  // 4) готовим слой с лицом на отдельном канвасе
+  const fC = document.createElement('canvas'); fC.width=W; fC.height=H;
+  const fCtx = fC.getContext('2d');
+
+  // координаты эллипса (лицо+шея) в координатах фона
   const {cx,cy,rx,ry} = tpl.face;
   const FX = W*cx, FY = H*cy, RX = W*rx, RY = H*ry;
 
-  // подгоняем лицо, чтобы оно целиком закрывало эллипс
-  // рассчитываем масштаб по высоте эллипса
-  const scale = Math.max((RY*2)/(face.naturalHeight||face.height), (RX*2)/(face.naturalWidth||face.width)) * 1.1; // чуть больше, чтобы с запасом
+  // масштабируем лицо так, чтобы перекрыть эллипс с небольшим запасом
+  const scale = Math.max((RY*2)/(face.naturalHeight||face.height),
+                         (RX*2)/(face.naturalWidth||face.width)) * 1.12;
   const fW = (face.naturalWidth||face.width) * scale;
   const fH = (face.naturalHeight||face.height) * scale;
   const fx = FX - fW/2;
   const fy = FY - fH/2;
 
-  // мягкая маска (перо)
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(FX, FY, RX, RY, 0, 0, Math.PI*2);
-  ctx.closePath();
-  ctx.shadowColor = "black";
-  ctx.shadowBlur = Math.max(W,H)*0.012;
-  ctx.fill();
-  ctx.globalCompositeOperation = "source-in";
-  ctx.drawImage(face, fx, fy, fW, fH);
-  ctx.restore();
+  // рисуем лицо на fC
+  fCtx.imageSmoothingQuality = 'high';
+  fCtx.drawImage(face, fx, fy, fW, fH);
 
-  return c.toDataURL("image/png");
+  // маска: оставляем только эллипс (destination-in) + мягкое перо
+  fCtx.save();
+  fCtx.globalCompositeOperation = 'destination-in';
+  fCtx.beginPath();
+  fCtx.ellipse(FX, FY, RX, RY, 0, 0, Math.PI*2);
+  fCtx.closePath();
+  fCtx.shadowColor = 'black';
+  fCtx.shadowBlur = Math.max(W,H)*0.016; // мягче, чем раньше
+  fCtx.fillStyle = '#000';
+  fCtx.fill();
+  fCtx.restore();
+
+  // 5) накладываем получившийся «слой лица» на фон
+  octx.drawImage(fC, 0, 0);
+
+  return out.toDataURL("image/png");
 }
 
 /* ===== Auto pipeline ===== */
@@ -286,14 +298,12 @@ function autoGenerate(){
   setStatus("Обрабатываем…");
   resultBox.style.display='none'; download.style.display='none';
   hideErr();
-  // небольшая задержка, чтобы не дёргать при быстром клике ролей
   clearTimeout(genTimer);
   genTimer = setTimeout(runPipeline, 200);
 }
 
 async function buildMaskForAI(imageB64){
-  // Простая маска «белое редактировать, чёрное — оставить лицо/шею» для inpaint варианта на бэкенде
-  // Здесь наоборот: чёрное = защищаем центр (лицо+шея)
+  // Чёрным защищаем лицо и шею, белым — что можно менять
   const img = await loadImage("data:image/*;base64,"+imageB64);
   const W = img.naturalWidth||img.width, H = img.naturalHeight||img.height;
   const c = document.createElement('canvas'); c.width=W; c.height=H;
@@ -309,7 +319,6 @@ async function buildMaskForAI(imageB64){
 async function runPipeline(){
   try{
     const imgB64 = await fileToResizedB64(file);
-    // маска для бэкенда (если он умеет inpaint)
     const maskB64 = await buildMaskForAI(imgB64);
 
     // 1) пробуем ИИ
@@ -317,11 +326,10 @@ async function runPipeline(){
     let finalURL = null;
 
     if (aiUrl) {
-      // добавляем логотип
       finalURL = await addLogoToDataURL(aiUrl);
       setStatus("Готово ✓ (ИИ)");
     } else {
-      // 2) локальная подстановка в PNG-шаблон
+      // 2) локально (теперь фон точно сохраняется)
       const localUrl = await composeLocally(imgB64);
       finalURL = await addLogoToDataURL(localUrl);
       setStatus("Готово ✓ (локально)");

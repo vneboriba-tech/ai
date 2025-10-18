@@ -11,7 +11,7 @@
     html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
       font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; min-height:100%; }
     body { display:flex; flex-direction:column; align-items:center; }
-    .container { width:100%; max-width:960px; padding:24px; }
+    .container { width:100%; max-width:980px; padding:24px; }
 
     header { text-align:center; margin-bottom:24px; }
     .title { font-size:clamp(28px,4vw,44px); font-weight:800; letter-spacing:-0.02em; margin:0; }
@@ -19,23 +19,20 @@
     .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; text-align:center; transition:.2s; background:#f9fafb; }
     .uploader:hover { border-color:#3b82f6; background:#f0f9ff; }
     .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.95; display:block; margin:0 auto 12px; }
-    .uploader .headline { font-size:18px; font-weight:700; }
-    .uploader .sub { font-size:14px; color:var(--muted); margin-top:6px; }
+    .headline { font-size:18px; font-weight:700; }
+    .sub { font-size:14px; color:var(--muted); margin-top:6px; }
     .picked { font-size:14px; margin-top:10px; color:#111827; }
 
     .roles-title { text-align:center; font-weight:800; margin-top:24px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
     @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
-    .role {
-      border:1px solid var(--border); border-radius:16px; padding:16px; cursor:pointer;
-      background:#fff; transition:.15s; font-size:16px; font-weight:800;
-    }
+    .role { border:1px solid var(--border); border-radius:16px; padding:16px; cursor:pointer; background:#fff; transition:.15s; font-size:16px; font-weight:800; }
     .role:hover { box-shadow:0 6px 18px rgba(0,0,0,.06); }
     .role.active { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.25); }
 
     .actions { margin-top:14px; display:flex; flex-direction:column; align-items:center; gap:8px; min-height:36px;}
     .status { font-size:14px; color:#374151; }
-    .err { color:#dc2626; font-size:14px; white-space:pre-wrap; text-align:center; display:none; }
+    .err { color:#dc2626; font-size:14px; white-space:pre-wrap; text-align:center; display:none; max-width:900px; }
 
     .result { margin-top:20px; text-align:center; }
     .result img { width:100%; max-width:900px; border-radius:18px; border:1px solid var(--border); }
@@ -45,12 +42,10 @@
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1 class="title">Почувствуй себя журналистом</h1>
-    </header>
+    <header><h1 class="title">Почувствуй себя журналистом</h1></header>
 
     <div class="uploader" id="dropzone">
-      <img class="logo" src="logo.png" alt="Логотип" onerror="this.style.display='none'">
+      <img class="logo" src="logo.png" alt="" onerror="this.style.display='none'">
       <div class="headline">Загрузите фото</div>
       <div class="sub">JPG, PNG, WEBP (до 12 МБ). Лучше портрет по центру, плечи в кадре.</div>
       <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" />
@@ -83,21 +78,21 @@
 
 <script>
 /* ===== CONFIG ===== */
-const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // ваш CF Worker c кодом выше
+const API_BASE = "https://media-gen-worker.vneboriba.workers.dev"; // URL воркера (Comet)
 const LOGO_URL = "logo.png?v=1";
 const MAX_UPLOAD_MB = 12;
 const MAX_SIDE = 1024;
 const PAYLOAD_LIMIT_BYTES = 4.5 * 1024 * 1024;
 
-// карты фонов + овал (в долях)
+// Эллипсы под фоновые PNG
 const TEMPLATE = {
-  "журналист":   { bg: "bg_journalist.png",   face: {cx:.50, cy:.38, rx:.15, ry:.21} },
-  "блогер":      { bg: "bg_blogger.png",      face: {cx:.50, cy:.40, rx:.16, ry:.22} },
-  "фотограф":    { bg: "bg_photographer.png", face: {cx:.49, cy:.39, rx:.15, ry:.21} },
+  "журналист":   { bg: "bg_journalist.png",   face: {cx:.50, cy:.38,  rx:.15,  ry:.21} },
+  "блогер":      { bg: "bg_blogger.png",      face: {cx:.505,cy:.425, rx:.155, ry:.215} },
+  "фотограф":    { bg: "bg_photographer.png", face: {cx:.49, cy:.39,  rx:.15,  ry:.21} },
 };
 
 /* ===== STATE / DOM ===== */
-let role = "журналист", file=null;
+let file = null, role = "журналист";
 const input = document.getElementById('fileInput');
 const drop = document.getElementById('dropzone');
 const picked = document.getElementById('picked');
@@ -107,97 +102,154 @@ const resultImg = document.getElementById('resultImg');
 const download = document.getElementById('download');
 const err = document.getElementById('error');
 
-/* ===== UI ===== */
+/* ===== helpers UI ===== */
+function setStatus(s){ statusEl.textContent = s; }
+function showErr(m){ err.style.display='block'; err.innerText = m; }
+function hideErr(){ err.style.display='none'; err.innerText=""; }
+
+/* ===== bind uploader/roles ===== */
 drop.addEventListener('click', ()=>input.click());
 drop.addEventListener('dragover', e => e.preventDefault());
 drop.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); });
 input.addEventListener('change', e => onFile(e.target.files?.[0]));
 document.querySelectorAll('.role').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.role').forEach(x => x.classList.remove('active'));
-  b.classList.add('active'); role = b.dataset.role; if (file) autoGenerate();
+  b.classList.add('active'); role = b.dataset.role; autoGenerate();
 }));
 
-function showErr(m){ err.style.display='block'; err.innerText=m; setStatus("Ошибка"); }
-function hideErr(){ err.style.display='none'; err.innerText=""; }
-function setStatus(s){ statusEl.textContent = s; }
+function onFile(f){
+  if (!f) return;
+  if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
+  const t = (f.type || "").toLowerCase();
+  const name = (f.name || "").toLowerCase();
+  if (t.includes("heic") || t.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif")) {
+    return showErr("HEIC/HEIF не поддерживается. Загрузите JPG/PNG/WEBP.");
+  }
+  if (f.size > MAX_UPLOAD_MB*1024*1024) return showErr(`Слишком большой файл (до ${MAX_UPLOAD_MB} МБ).`);
+  file = f;
+  picked.textContent = `Вы выбрали: ${f.name}`;
+  hideErr(); autoGenerate();
+}
 
-/* ===== helpers ===== */
-function b64Bytes(b64){ const L=b64.length; return Math.floor((L*3)/4) - (b64.endsWith("==")?2:b64.endsWith("=")?1:0); }
+/* ===== image utils ===== */
 function loadImage(src){
   return new Promise((resolve,reject)=>{
     const img=new Image(); img.crossOrigin="anonymous";
     img.onload=()=>resolve(img);
-    img.onerror=()=>reject(new Error("Load failed: "+src));
-    img.src = src.includes("data:") ? src : (src + (src.includes("?")?"":"?v="+Date.now()));
+    img.onerror=()=>reject(new Error("Не удалось загрузить: "+src));
+    img.src = src.startsWith("data:") ? src : (src + (src.includes("?")?"":"?v="+Date.now()));
   });
+}
+function b64Bytes(b64){
+  const L = b64.length;
+  return Math.floor((L * 3) / 4) - (b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0);
 }
 async function fileToResizedB64(file){
   const dataUrl = await new Promise((res,rej)=>{
-    const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(new Error("Не удалось прочитать файл")); r.readAsDataURL(file);
+    const r=new FileReader();
+    r.onload=()=>res(r.result); r.onerror=()=>rej(new Error("Не удалось прочитать файл"));
+    r.readAsDataURL(file);
   });
   const img = await loadImage(dataUrl);
-  let W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
-  let k = Math.max(W,H) > MAX_SIDE ? MAX_SIDE/Math.max(W,H) : 1;
-  W=Math.round(W*k); H=Math.round(H*k);
+  let W = img.naturalWidth||img.width, H = img.naturalHeight||img.height;
+  let k = Math.max(W,H) > MAX_SIDE ? MAX_SIDE / Math.max(W,H) : 1;
+  W = Math.round(W*k); H = Math.round(H*k);
   let c=document.createElement('canvas'); c.width=W; c.height=H;
-  let ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high'; ctx.drawImage(img,0,0,W,H);
-  let quality=0.9; let b64=c.toDataURL('image/jpeg',quality).split(',')[1];
-  while (b64Bytes(b64) > PAYLOAD_LIMIT_BYTES){
-    if (quality>0.6) quality-=0.1;
-    else { W=Math.round(W*0.9); H=Math.round(H*0.9); if (W<512||H<512) break;
+  let ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high';
+  ctx.drawImage(img,0,0,W,H);
+  let quality=0.9;
+  let b64=c.toDataURL('image/jpeg',quality).split(',')[1];
+  while (b64Bytes(b64) > PAYLOAD_LIMIT_BYTES) {
+    if (quality>0.6) quality-=0.1; else {
+      W=Math.round(W*0.9); H=Math.round(H*0.9);
+      if (W<512 || H<512) break;
       const c2=document.createElement('canvas'); c2.width=W; c2.height=H;
-      const ct=c2.getContext('2d'); ct.imageSmoothingQuality='high'; ct.drawImage(c,0,0,W,H);
-      c=c2;
+      const ctx2=c2.getContext('2d'); ctx2.imageSmoothingQuality='high';
+      ctx2.drawImage(c,0,0,W,H); c=c2;
     }
     b64=c.toDataURL('image/jpeg',quality).split(',')[1];
   }
   return b64;
 }
 async function fetchBgAsB64(role){
-  const tpl=TEMPLATE[role]||TEMPLATE["журналист"];
-  const img = await loadImage(tpl.bg);
-  const c=document.createElement('canvas'); c.width=img.naturalWidth||img.width; c.height=img.naturalHeight||img.height;
-  c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-  return c.toDataURL('image/png').split(',')[1];
-}
-async function buildGuideMaskB64(role){
-  const tpl=TEMPLATE[role]; const bg=await loadImage(tpl.bg);
-  const W=bg.naturalWidth||bg.width, H=bg.naturalHeight||bg.height;
-  const {cx,cy,rx,ry}=tpl.face;
-  const c=document.createElement('canvas'); c.width=W; c.height=H;
-  const ctx=c.getContext('2d');
-  // прозрачный фон + зелёная цель (модели объясним текстом)
-  ctx.clearRect(0,0,W,H);
-  ctx.save(); ctx.beginPath(); ctx.ellipse(W*cx, H*cy, W*rx, H*ry, 0, 0, Math.PI*2); ctx.closePath();
-  ctx.fillStyle="#00FF00"; ctx.globalAlpha=0.95; ctx.fill(); ctx.restore();
-  return c.toDataURL('image/png').split(',')[1];
-}
-function roundRect(ctx,x,y,w,h,r){ r=Math.min(r,w/2,h/2); ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-async function addLogo(dataURL){
-  try{
-    const base=await loadImage(dataURL);
-    const logoEl=document.getElementById('logoPreload');
-    const logo=(logoEl && logoEl.naturalWidth>0)?logoEl:await loadImage(LOGO_URL);
-    const W=base.naturalWidth||base.width, H=base.naturalHeight||base.height;
-    const c=document.createElement('canvas'); c.width=W; c.height=H;
-    const ctx=c.getContext('2d'); ctx.drawImage(base,0,0,W,H);
-    const margin=Math.round(Math.min(W,H)*0.02);
-    const targetW=Math.round(W*0.18);
-    const ratio=(logo.naturalWidth||logo.width)/(logo.naturalHeight||logo.height);
-    const targetH=Math.round(targetW/ratio);
-    const x=W-targetW-margin, y=H-targetH-margin;
-    const pad=Math.round(targetW*0.10);
-    const bx=x-pad, by=y-pad, bw=targetW+pad*2, bh=targetH+pad*2;
-    const rr=Math.round(Math.min(bw,bh)*0.18);
-    ctx.save(); roundRect(ctx,bx,by,bw,bh,rr); ctx.fillStyle="rgba(255,255,255,0.94)"; ctx.fill(); ctx.restore();
-    ctx.globalAlpha=0.98; ctx.drawImage(logo,x,y,targetW,targetH); ctx.globalAlpha=1;
-    return c.toDataURL('image/png');
-  }catch{ return dataURL; }
+  const p = TEMPLATE[role]?.bg || TEMPLATE["журналист"].bg;
+  const resp = await fetch(p).catch(()=>null);
+  if (!resp || !resp.ok) throw new Error("Фон не найден: "+p);
+  const buf = await resp.arrayBuffer();
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
 }
 
-/* ===== AI first, local fallback ===== */
+/* — маска-подсказка для ИИ: зелёный эллипс на прозрачном фоне — */
+async function buildGuideMaskB64(role){
+  const bg = await loadImage(TEMPLATE[role]?.bg || TEMPLATE["журналист"].bg);
+  const W = bg.naturalWidth||bg.width, H = bg.naturalHeight||bg.height;
+  const {cx,cy,rx,ry} = TEMPLATE[role].face;
+  const c = document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  ctx.save(); ctx.beginPath();
+  ctx.ellipse(W*cx, H*cy, W*rx, H*ry, 0, 0, Math.PI*2);
+  ctx.closePath(); ctx.clip();
+  ctx.fillStyle = "#00ff00"; // зелёная зона «сюда вставлять»
+  ctx.globalAlpha = 1;
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+  return c.toDataURL('image/png').split(',')[1];
+}
+
+/* — локальный фолбэк: мягкий овальный клип — */
+function roundRect(ctx,x,y,w,h,r){ r=Math.min(r,w/2,h/2);
+  ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+async function composeLocally({faceB64, role}){
+  const tpl = TEMPLATE[role] || TEMPLATE["журналист"];
+  const bg = await loadImage(tpl.bg);
+  const face = await loadImage("data:image/*;base64,"+faceB64);
+  const W = bg.naturalWidth||bg.width, H = bg.naturalHeight||bg.height;
+  const c = document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx = c.getContext('2d'); ctx.drawImage(bg,0,0,W,H);
+
+  const {cx,cy,rx,ry} = tpl.face;
+  const CX=W*cx, CY=H*cy, RX=W*rx, RY=H*ry;
+
+  const scale = Math.max((RY*2)/(face.naturalHeight||face.height), (RX*2)/(face.naturalWidth||face.width)) * 1.08;
+  const fW = (face.naturalWidth||face.width) * scale;
+  const fH = (face.naturalHeight||face.height) * scale;
+  const fx = CX - fW/2, fy = CY - fH/2;
+
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(CX,CY,RX,RY,0,0,Math.PI*2); ctx.closePath();
+  ctx.shadowColor = "black"; ctx.shadowBlur = Math.max(W,H)*0.012; ctx.fill();
+  ctx.globalCompositeOperation = "source-in"; ctx.drawImage(face, fx, fy, fW, fH);
+  ctx.restore();
+
+  return c.toDataURL("image/png");
+}
+
+/* — логотип — */
+async function addLogo(dataURL){
+  const base=await loadImage(dataURL);
+  const logoEl=document.getElementById('logoPreload');
+  const logo=(logoEl && logoEl.naturalWidth>0)?logoEl:await loadImage(LOGO_URL);
+  const W=base.naturalWidth||base.width, H=base.naturalHeight||base.height;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx=c.getContext('2d'); ctx.drawImage(base,0,0,W,H);
+  const margin=Math.round(Math.min(W,H)*0.02);
+  const targetW=Math.round(W*0.18);
+  const ratio=(logo.naturalWidth||logo.width)/(logo.naturalHeight||logo.height);
+  const targetH=Math.round(targetW/ratio);
+  const x=W-targetW-margin, y=H-targetH-margin;
+  const pad=Math.round(targetW*0.10);
+  const bx=x-pad, by=y-pad, bw=targetW+pad*2, bh=targetH+pad*2;
+  const rr=Math.round(Math.min(bw,bh)*0.18);
+  ctx.save(); roundRect(ctx,bx,by,bw,bh,rr); ctx.fillStyle="rgba(255,255,255,0.94)"; ctx.fill(); ctx.restore();
+  ctx.globalAlpha=0.98; ctx.drawImage(logo,x,y,targetW,targetH); ctx.globalAlpha=1;
+  return c.toDataURL('image/png');
+}
+
+/* ===== Comet Worker call ===== */
 async function callAI({faceB64, bgB64, maskB64}){
   const fd = new FormData();
   fd.append("role", role);
@@ -207,86 +259,54 @@ async function callAI({faceB64, bgB64, maskB64}){
 
   const ctl = new AbortController();
   const t = setTimeout(()=>ctl.abort(), 70000);
-  const resp = await fetch((API_BASE||"")+"/api/generate", { method:"POST", body:fd, signal:ctl.signal }).catch(()=>null);
+  const resp = await fetch((API_BASE||"")+"/api/generate", { method:"POST", body:fd, signal:ctl.signal }).catch(e=>({ok:false,_e:e}));
   clearTimeout(t);
-  if (!resp) return null;
-  const raw = await resp.text().catch(()=>null);
-  let data=null; try{ data=JSON.parse(raw); }catch{}
-  if (!resp.ok) return null;
-  if (data?.imageBase64) return "data:image/png;base64,"+data.imageBase64;
-  return null;
-}
 
-async function composeLocally({faceB64, role}){
-  const tpl=TEMPLATE[role];
-  const bg = await loadImage(tpl.bg);
-  const face = await loadImage("data:image/*;base64,"+faceB64);
-  const W=bg.naturalWidth||bg.width, H=bg.naturalHeight||bg.height;
-  const c=document.createElement('canvas'); c.width=W; c.height=H;
-  const ctx=c.getContext('2d'); ctx.drawImage(bg,0,0,W,H);
-  const {cx,cy,rx,ry}=tpl.face;
-  const FX=W*cx, FY=H*cy, RX=W*rx, RY=H*ry;
-
-  // масштаб лица — по покрытию эллипса
-  const s = Math.max((RY*2)/(face.naturalHeight||face.height), (RX*2)/(face.naturalWidth||face.width)) * 1.12;
-  const fW=(face.naturalWidth||face.width)*s, fH=(face.naturalHeight||face.height)*s;
-  const fx=FX - fW/2, fy=FY - fH/2;
-
-  // мягкая маска эллипсом
-  ctx.save();
-  ctx.beginPath(); ctx.ellipse(FX,FY,RX,RY,0,0,Math.PI*2); ctx.closePath();
-  ctx.shadowColor="black"; ctx.shadowBlur=Math.max(W,H)*0.012; ctx.fill();
-  ctx.globalCompositeOperation="source-in"; ctx.drawImage(face,fx,fy,fW,fH);
-  ctx.restore();
-
-  return c.toDataURL('image/png');
+  if (!resp || !resp.ok){
+    let reason = "network error";
+    try{
+      const raw = await resp.text(); const j = JSON.parse(raw);
+      reason = (j?.details || j?.error || raw || String(resp?._e||"")).toString().slice(0,500);
+    }catch{}
+    throw new Error("AI failed: "+reason);
+  }
+  const j = await resp.json();
+  if (j?.imageBase64) return "data:image/png;base64,"+j.imageBase64;
+  throw new Error("AI returned no image");
 }
 
 /* ===== pipeline ===== */
 let genTimer=null;
-function onFile(f){
-  if (!f) return;
-  if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
-  const t=(f.type||"").toLowerCase(), name=(f.name||"").toLowerCase();
-  if (t.includes("heic") || t.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif"))
-    return showErr("HEIC/HEIF не поддерживается. Загрузите JPG/PNG/WEBP.");
-  if (f.size > MAX_UPLOAD_MB*1024*1024) return showErr(`Слишком большой файл (до ${MAX_UPLOAD_MB} МБ).`);
-  file=f; picked.textContent=`Вы выбрали: ${f.name}`; hideErr();
-  autoGenerate();
-}
 function autoGenerate(){
   if (!file) return;
-  setStatus("Обрабатываем…"); resultBox.style.display='none'; download.style.display='none'; hideErr();
-  clearTimeout(genTimer); genTimer=setTimeout(run, 150);
+  hideErr(); setStatus("Обрабатываем…");
+  resultBox.style.display='none'; download.style.display='none';
+  clearTimeout(genTimer); genTimer = setTimeout(run, 200);
 }
-
 async function run(){
   try{
     const faceB64 = await fileToResizedB64(file);
     const bgB64   = await fetchBgAsB64(role);
     const maskB64 = await buildGuideMaskB64(role);
 
-    // 1) ИИ (CometAPI)
-    const aiUrl = await callAI({faceB64, bgB64, maskB64});
-    let finalURL = aiUrl;
-
-    // 2) fallback локально — если Comet не дал картинку
-    if (!finalURL){
+    let finalURL = null;
+    try{
+      const aiUrl = await callAI({faceB64, bgB64, maskB64});
+      finalURL = aiUrl;
+      setStatus("Готово ✓ (ИИ)");
+    }catch(aiErr){
+      console.warn(aiErr);
+      setStatus("ИИ недоступен → локально");
+      showErr(String(aiErr.message||aiErr).slice(0,300));
       const local = await composeLocally({faceB64, role});
       finalURL = local;
-      setStatus("Готово ✓ (локальный режим)");
-    } else {
-      setStatus("Готово ✓ (ИИ)");
     }
 
-    // логотип
     finalURL = await addLogo(finalURL);
     resultImg.src = finalURL;
     resultBox.style.display='block';
     download.href = finalURL; download.style.display='inline-block';
-  }catch(e){
-    showErr(e.message||String(e));
-  }
+  }catch(e){ showErr(e.message||String(e)); setStatus("Ошибка"); }
 }
 </script>
 </body>

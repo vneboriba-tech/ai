@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Почувствуй себя журналистом</title>
-  <meta name="description" content="Журналист / Блогер / Фотограф — генерация образа с сохранением лица" />
+  <meta name="description" content="Журналист / Блогер / Фотограф — полная перерисовка образа по промпту" />
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
     * { box-sizing:border-box; }
@@ -150,20 +150,6 @@ async function isMostlyBlack(dataUrl){
   return (sum/N) < 8;
 }
 
-/* вернуть родное лицо поверх результата */
-async function pasteFaceBack(resultDataURL, originalDataURL, w, h){
-  const [resImg, origImg] = await Promise.all([loadImage(resultDataURL), loadImage(originalDataURL)]);
-  const cw = w || resImg.width, ch = h || resImg.height;
-  const c = document.createElement("canvas"); c.width=cw; c.height=ch;
-  const g = c.getContext("2d");
-  g.drawImage(resImg,0,0,cw,ch);
-  const cx = cw*0.5, cy = ch*0.43, rx = cw*0.30, ry = ch*0.38; // эллипс лица/шеи
-  g.save(); g.beginPath(); g.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); g.clip();
-  g.drawImage(origImg,0,0,cw,ch);
-  g.restore();
-  return c.toDataURL("image/png");
-}
-
 /* логотип-оверлей */
 async function composeLogoOver(imgDataUrl){
   let baseImg, logoImg;
@@ -205,7 +191,7 @@ function pickAspect(w,h){
   return "ASPECT_1_1";
 }
 
-/* основная генерация */
+/* основная генерация (без масок, полная перерисовка) */
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
@@ -219,7 +205,7 @@ async function generateImage(){
     fd.append("image_b64", resized.b64);
     fd.append("force_upscale", "1024");
     fd.append("aspect", pickAspect(resized.width, resized.height));
-    fd.append("neg", "никаких слов, букв и логотипов на фоне; без школьной доски");
+    fd.append("neg", "никаких слов/логотипов на фоне; не использовать классную доску; без текстовых оверлеев");
 
     const r = await fetchWithTimeout(`${API_BASE}/api/generate`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
@@ -227,9 +213,8 @@ async function generateImage(){
     let j = null;
     try { j = JSON.parse(t); } catch { console.error("Non-JSON reply:", t); showErr("Некорректный ответ сервера (ожидался JSON)."); return; }
 
-    // если оба провайдера не дали картинку — сервер может вернуть пасс-тру
+    // если оба провайдера не дали картинку — сервер возвращает исходник
     if (!r.ok || j.error) {
-      // fallback на клиенте: покажем исходник с логотипом + текст причин
       let imgUrl = await composeLogoOver(resized.dataUrl);
       resultImg.src = imgUrl;
       resultBox.style.display="block";
@@ -241,29 +226,19 @@ async function generateImage(){
         j.geminiFail ? `gemini: ${JSON.stringify(j.geminiFail)}` : "",
         j.workersAIFail ? `workersAI: ${JSON.stringify(j.workersAIFail)}` : ""
       ].filter(Boolean).join("\n");
-      statusEl.innerText = `Готово (показан исходник с лого) · причины:\n${reasons || 'неизвестно'}`;
+      statusEl.innerText = `Готово (исходник с лого) · причины:\n${reasons || 'неизвестно'}`;
       return;
     }
 
-    if (!j.imageBase64) {
-      // то же поведение: исходник с лого
-      let imgUrl = await composeLogoOver(resized.dataUrl);
-      resultImg.src = imgUrl;
-      resultBox.style.display="block";
-      download.href = imgUrl;
-      download.style.display="inline-block";
-      statusEl.innerText = "Готово (показан исходник с лого) · причина: модель не вернула изображение";
-      return;
-    }
+    if (!j.imageBase64) { showErr("ИИ не вернул изображение"); return; }
 
-    // показать, кто генерил
-    statusEl.innerText = `Готово ✓ · ${j.stage ? (j.stage === 'gemini' ? 'Gemini' : j.stage) : 'unknown'}`;
+    statusEl.innerText = `Готово ✓ · ${j.stage === 'gemini' ? 'Gemini' : j.stage}`;
 
     let imgUrl = "data:image/png;base64,"+j.imageBase64;
 
-    // не «клеим лицо» если пустышка
-    if (!(await isMostlyBlack(imgUrl))) {
-      imgUrl = await pasteFaceBack(imgUrl, resized.dataUrl);
+    // подстраховка от «чёрного»: если пусто — показываем исходник
+    if (await isMostlyBlack(imgUrl)) {
+      imgUrl = resized.dataUrl;
     }
     imgUrl = await composeLogoOver(imgUrl);
 

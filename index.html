@@ -21,6 +21,7 @@
     .headline { font-weight:700; font-size:18px; }
     .sub { color:var(--muted); font-size:14px; margin-top:6px; }
     .picked { margin-top:10px; font-size:14px; }
+
     .roles { margin-top:24px; }
     .roles-title { text-align:center; font-weight:700; font-size:18px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
@@ -29,13 +30,20 @@
       cursor:pointer; background:#fff; transition:.15s; }
     .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
+
     .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
     .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
+
     .result { margin-top:24px; text-align:center; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
+
     .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
     .btn:hover { background:#059669; }
+
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
+
+    /* ★ маленькая зона логов */
+    pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:220px; font-size:12px; display:none; }
   </style>
 </head>
 <body>
@@ -68,6 +76,9 @@
         <a id="download" class="btn" download="result.png" style="display:none;">Скачать PNG</a>
       </div>
     </div>
+
+    <!-- ★ зона логов -->
+    <pre id="logs"></pre>
   </div>
 
   <footer>© 2025 факультет журналистики МГУ</footer>
@@ -88,9 +99,11 @@ const err = document.getElementById("error");
 const resultBox = document.getElementById("resultBox");
 const resultImg = document.getElementById("resultImg");
 const download = document.getElementById("download");
+const logsEl = document.getElementById("logs");
 
 function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
 function hideErr(){ err.style.display="none"; err.innerText=""; }
+function showLogs(obj){ try{ logsEl.style.display="block"; logsEl.textContent = JSON.stringify(obj,null,2); }catch{} }
 
 function fetchWithTimeout(url, init = {}, ms = 90000){
   const ctrl = new AbortController();
@@ -187,12 +200,12 @@ function pickAspect(w,h){
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
-  resultBox.style.display="none"; download.style.display="none"; hideErr();
+  resultBox.style.display="none"; download.style.display="none"; hideErr(); logsEl.style.display="none";
 
   try{
     const resized = await resizeFile(file);
 
-    // диагностика провайдеров — поможет понять, почему passthrough
+    // диагностика провайдеров
     try{
       const dbg = await fetchWithTimeout(`${API_BASE}/api/debug`, { method:"GET" }, 6000).then(r=>r.json());
       statusEl.innerText = `Проверка провайдеров: GEMINI=${dbg.hasKey?'OK':'NO'}, CF_AI=${dbg.hasAI?'OK':'NO'}\nОбработка изображения…`;
@@ -204,7 +217,8 @@ async function generateImage(){
     fd.append("width", String(resized.width));
     fd.append("height", String(resized.height));
     fd.append("force_upscale", "1024");
-    fd.append("use_exp_model", "1"); // важный флаг: пробуем exp-модель
+    fd.append("use_exp_model", "1");
+    fd.append("force_sd", "1"); // ★ принудительно используем SD-фоллбэк для проверки изменений
 
     const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
@@ -212,18 +226,16 @@ async function generateImage(){
     let j = null;
     try { j = JSON.parse(t); } catch { console.error("Non-JSON reply:", t); showErr("Некорректный ответ сервера (ожидался JSON)."); return; }
 
+    // показываем логи от сервера
+    showLogs(j);
+
     let imgUrl;
     if (j.imageBase64) {
       statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed}`;
       imgUrl = "data:image/png;base64,"+j.imageBase64;
       if (await isMostlyBlack(imgUrl)) imgUrl = resized.dataUrl;
     } else {
-      // подробная причина, если ничего не изменилось
-      const reason =
-        (j.details ? `details: ${j.details}` : "") +
-        (j.geminiFail ? `\nGemini: ${JSON.stringify(j.geminiFail)}` : "") +
-        (j.workersAIFail ? `\nWorkersAI: ${JSON.stringify(j.workersAIFail)}` : "");
-      statusEl.innerText = `Переход в passthrough (показан исходник). Причины:\n${reason || 'неизвестно'}`;
+      statusEl.innerText = `Переход в passthrough (показан исходник).`;
       imgUrl = resized.dataUrl;
     }
 

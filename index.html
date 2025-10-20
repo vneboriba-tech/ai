@@ -55,7 +55,7 @@
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
 
     .status { margin-top:20px; text-align:center; font-size:15px; }
-    .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; }
+    .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
 
     .result { margin-top:24px; text-align:center; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
@@ -118,6 +118,17 @@ const resultBox = document.getElementById("resultBox");
 const resultImg = document.getElementById("resultImg");
 const download = document.getElementById("download");
 
+/* === helpers === */
+function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
+function hideErr(){ err.style.display="none"; err.innerText=""; }
+
+/* таймаут для сетевых запросов */
+function fetchWithTimeout(url, init = {}, ms = 60000){
+  const ctrl = new AbortController();
+  const id = setTimeout(()=>ctrl.abort(), ms);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(()=>clearTimeout(id));
+}
+
 /* === Upload === */
 drop.addEventListener("click", () => input.click());
 drop.addEventListener("dragover", e => e.preventDefault());
@@ -127,9 +138,6 @@ drop.addEventListener("drop", e => {
   if (f) handleFile(f);
 });
 input.addEventListener("change", e => handleFile(e.target.files?.[0]));
-
-function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
-function hideErr(){ err.style.display="none"; err.innerText=""; }
 
 function handleFile(f){
   if (!f) return;
@@ -173,7 +181,7 @@ function loadImage(src){
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
-  resultBox.style.display="none"; download.style.display="none";
+  resultBox.style.display="none"; download.style.display="none"; hideErr();
 
   try{
     const b64 = await resizeFile(file);
@@ -181,13 +189,20 @@ async function generateImage(){
     fd.append("role", role);
     fd.append("image_b64", b64);
 
-    const r = await fetch(`${API_BASE}/api/generate`, { method:"POST", body:fd });
+    const r = await fetchWithTimeout(`${API_BASE}/api/generate`, { method:"POST", body:fd }, 60000);
     const t = await r.text();
+
     let j = null;
-    try{ j = JSON.parse(t); }catch{ showErr("Некорректный ответ ИИ"); return; }
+    try { j = JSON.parse(t); }
+    catch {
+      console.error("Non-JSON reply:", t);
+      showErr("Некорректный ответ сервера (ожидался JSON).");
+      return;
+    }
 
     if (!r.ok || j.error) {
-      showErr("ИИ вернул ошибку: "+(j.details||j.error||r.statusText));
+      const detail = j.details || j.error || r.statusText || "Неизвестная ошибка";
+      showErr("ИИ вернул ошибку: " + detail);
       console.error("AI error:", j);
       return;
     }
@@ -203,7 +218,11 @@ async function generateImage(){
       showErr("ИИ не вернул изображение");
     }
   }catch(e){
-    showErr(e.message);
+    if (e.name === "AbortError") {
+      showErr("Превышено время ожидания ответа сервера. Повторите попытку.");
+    } else {
+      showErr(e.message || "Неизвестная ошибка сети");
+    }
   }
 }
 </script>

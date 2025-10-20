@@ -89,18 +89,15 @@ const resultBox = document.getElementById("resultBox");
 const resultImg = document.getElementById("resultImg");
 const download = document.getElementById("download");
 
-/* helpers */
 function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
 function hideErr(){ err.style.display="none"; err.innerText=""; }
 
-/* таймаут */
 function fetchWithTimeout(url, init = {}, ms = 90000){
   const ctrl = new AbortController();
   const id = setTimeout(()=>ctrl.abort(), ms);
   return fetch(url, { ...init, signal: ctrl.signal }).finally(()=>clearTimeout(id));
 }
 
-/* uploader */
 drop.addEventListener("click", () => input.click());
 drop.addEventListener("dragover", e => e.preventDefault());
 drop.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); });
@@ -125,7 +122,6 @@ document.querySelectorAll(".role").forEach(b=>{
   });
 });
 
-/* resize */
 async function resizeFile(f){
   const dataUrl = await new Promise((res,rej)=>{
     const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f);
@@ -144,35 +140,6 @@ function loadImage(src){
   });
 }
 
-/* маска лица/шеи: чёрное — сохраняем, белое — меняем */
-function buildFaceNeckMaskPNGBase64(w,h){
-  const c=document.createElement("canvas"); c.width=w; c.height=h;
-  const g=c.getContext("2d");
-  g.fillStyle="#ffffff"; g.fillRect(0,0,w,h); // менять
-  const cx = w*0.5, cy = h*0.43, rx = w*0.30, ry = h*0.38;
-  g.fillStyle="#000000"; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); g.fill();
-  const neckW = w*0.22, neckH = h*0.16;
-  g.fillRect(cx - neckW/2, cy + ry*0.5, neckW, neckH);
-  return c.toDataURL("image/png").split(",")[1];
-}
-function invertMaskB64(maskB64){
-  return new Promise((resolve)=>{
-    const img = new Image();
-    img.onload = ()=>{
-      const c = document.createElement("canvas");
-      c.width = img.width; c.height = img.height;
-      const g = c.getContext("2d");
-      g.drawImage(img,0,0);
-      const id = g.getImageData(0,0,c.width,c.height);
-      const d = id.data;
-      for (let i=0;i<d.length;i+=4){ d[i]=255-d[i]; d[i+1]=255-d[i+1]; d[i+2]=255-d[i+2]; }
-      g.putImageData(id,0,0);
-      resolve(c.toDataURL("image/png").split(",")[1]);
-    };
-    img.src = "data:image/png;base64,"+maskB64;
-  });
-}
-
 /* вернуть родное лицо поверх результата */
 async function pasteFaceBack(resultDataURL, originalDataURL, w, h){
   const [resImg, origImg] = await Promise.all([loadImage(resultDataURL), loadImage(originalDataURL)]);
@@ -180,9 +147,9 @@ async function pasteFaceBack(resultDataURL, originalDataURL, w, h){
   const c = document.createElement("canvas"); c.width=cw; c.height=ch;
   const g = c.getContext("2d");
   g.drawImage(resImg,0,0,cw,ch);
-  const cx = cw*0.5, cy = ch*0.43, rx = cw*0.30, ry = ch*0.38;
+  const cx = cw*0.5, cy = ch*0.43, rx = cw*0.30, ry = ch*0.38; // эллипс лица/шеи
   g.save(); g.beginPath(); g.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); g.clip();
-  g.drawImage(origImg,0,0,cw,ch);
+  g.drawImage(await loadImage(originalDataURL),0,0,cw,ch);
   g.restore();
   return c.toDataURL("image/png");
 }
@@ -220,7 +187,7 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
-/* основная генерация */
+/* основная генерация через Gemini */
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
@@ -228,16 +195,12 @@ async function generateImage(){
 
   try{
     const resized = await resizeFile(file);
-    const mask = buildFaceNeckMaskPNGBase64(resized.width, resized.height);
-    const maskInv = await invertMaskB64(mask);
 
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
-    fd.append("mask_b64", mask);
-    fd.append("mask_inv_b64", maskInv);
     fd.append("force_upscale", "1024");
-    fd.append("neg", "remove classroom, chalkboard, any background text; no words on background");
+    fd.append("neg", "no classroom, no blackboard, no words in background");
 
     const r = await fetchWithTimeout(`${API_BASE}/api/generate`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
@@ -247,11 +210,11 @@ async function generateImage(){
     if (!r.ok || j.error) { const detail = j.details || j.error || r.statusText || "Неизвестная ошибка"; showErr("ИИ вернул ошибку: " + detail); console.error("AI error:", j); return; }
     if (!j.imageBase64) { showErr("ИИ не вернул изображение"); return; }
 
-    // пастим родное лицо, затем логотип
-    let imgUrl = "data:image/png;base64,"+j.imageBase64;
+    // возвращаем лицо + логотип
     const origUrl = resized.dataUrl;
-    const tmp = await pasteFaceBack(imgUrl, origUrl);
-    imgUrl = await composeLogoOver(tmp);
+    let imgUrl = "data:image/png;base64,"+j.imageBase64;
+    imgUrl = await pasteFaceBack(imgUrl, origUrl);
+    imgUrl = await composeLogoOver(imgUrl);
 
     resultImg.src = imgUrl;
     resultBox.style.display="block";
@@ -259,7 +222,7 @@ async function generateImage(){
     download.style.display="inline-block";
     statusEl.innerText="Готово ✓";
   }catch(e){
-    if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера. Повторите попытку.");
+    if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
     else showErr(e.message || "Неизвестная ошибка сети");
   }
 }

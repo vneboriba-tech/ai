@@ -6,53 +6,75 @@
   <title>Почувствуй себя журналистом</title>
   <meta name="description" content="Журналист / Блогер / Фотограф — генерация образа с сохранением лица" />
   <style>
-    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --brand:#2563eb; --border:#e5e7eb; }
+    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
     * { box-sizing:border-box; }
-    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
-      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; min-height:100%; }
-    body { display:flex; flex-direction:column; align-items:center; }
-    .container { width:100%; max-width:960px; padding:24px; }
+    html,body {
+      margin:0; padding:0;
+      background:var(--bg); color:var(--fg);
+      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;
+    }
+    body { display:flex; flex-direction:column; align-items:center; min-height:100vh; }
 
-    header { text-align:center; margin-bottom:24px; }
-    .title { font-size:clamp(28px,4vw,44px); font-weight:800; letter-spacing:-0.02em; margin:0; }
+    header { text-align:center; margin-top:24px; margin-bottom:16px; }
+    h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
 
-    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; text-align:center; transition:.2s; background:#f9fafb; }
-    .uploader:hover { border-color:#3b82f6; background:#f0f9ff; }
-    .uploader .logo { width:64px; height:64px; object-fit:contain; opacity:.95; display:block; margin:0 auto 12px; }
-    .uploader .headline { font-size:18px; font-weight:700; }
-    .uploader .sub { font-size:14px; color:var(--muted); margin-top:6px; }
-    .picked { font-size:14px; margin-top:10px; color:#111827; }
+    .container { width:100%; max-width:960px; padding:20px; }
 
-    .roles-title { text-align:center; font-weight:800; margin-top:24px; }
-    .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
+    .uploader {
+      border:2px dashed var(--border);
+      border-radius:24px;
+      padding:40px 20px;
+      background:#f9fafb;
+      text-align:center;
+      cursor:pointer;
+      transition:.2s;
+    }
+    .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
+    .uploader img.logo { width:72px; height:72px; margin-bottom:12px; }
+
+    .headline { font-weight:700; font-size:18px; }
+    .sub { color:var(--muted); font-size:14px; margin-top:6px; }
+    .picked { margin-top:10px; font-size:14px; }
+
+    .roles { margin-top:24px; }
+    .roles-title { text-align:center; font-weight:700; font-size:18px; }
+    .roles-grid {
+      display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px;
+    }
     @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
     .role {
-      border:1px solid var(--border); border-radius:16px; padding:16px; cursor:pointer;
-      background:#fff; transition:.15s; font-size:16px; font-weight:800;
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      font-weight:700;
+      cursor:pointer;
+      background:#fff;
+      transition:.15s;
     }
-    .role:hover { box-shadow:0 6px 18px rgba(0,0,0,.06); }
-    .role.active { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.25); }
+    .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
+    .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
 
-    .actions { margin-top:14px; display:flex; flex-direction:column; align-items:center; gap:8px; min-height:36px;}
-    .status { font-size:14px; color:#374151; }
-    .err { color:#dc2626; font-size:14px; white-space:pre-wrap; text-align:center; display:none; }
+    .status { margin-top:20px; text-align:center; font-size:15px; }
+    .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; }
 
-    .result { margin-top:20px; text-align:center; }
-    .result img { width:100%; max-width:900px; border-radius:18px; border:1px solid var(--border); }
-    .btn { border:0; border-radius:14px; padding:10px 16px; background:#10b981; color:#fff; font-weight:800; cursor:pointer; text-decoration:none; display:inline-block }
-    footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
+    .result { margin-top:24px; text-align:center; }
+    .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
+
+    .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
+    .btn:hover { background:#059669; }
+    footer { margin-top:40px; text-align:center; color:var(--muted); font-size:14px; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1 class="title">Почувствуй себя журналистом</h1>
+      <h1>Почувствуй себя журналистом</h1>
     </header>
 
     <div class="uploader" id="dropzone">
-      <img class="logo" src="logo.png" alt="Логотип" onerror="this.style.display='none'">
+      <img src="logo.png" alt="Логотип" class="logo" onerror="this.style.display='none'">
       <div class="headline">Загрузите фото</div>
-      <div class="sub">JPG, PNG, WEBP (до 12 МБ). Лучше портрет по центру, плечи в кадре.</div>
+      <div class="sub">JPG, PNG, WEBP до 12 МБ</div>
       <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" />
       <div id="picked" class="picked"></div>
     </div>
@@ -66,200 +88,122 @@
       </div>
     </div>
 
-    <div class="actions">
-      <div id="status" class="status">Готово к работе</div>
-      <a id="download" class="btn" download="result.png" style="display:none;">Скачать PNG</a>
-      <div id="error" class="err"></div>
-    </div>
+    <div id="status" class="status">Готово к работе</div>
+    <div id="error" class="err"></div>
 
-    <div class="result" id="resultBox" style="display:none;">
-      <img id="resultImg" alt="Результат" />
+    <div id="resultBox" class="result" style="display:none;">
+      <img id="resultImg" alt="Результат">
+      <div style="margin-top:12px;">
+        <a id="download" class="btn" download="result.png" style="display:none;">Скачать PNG</a>
+      </div>
     </div>
   </div>
 
   <footer>© 2025 факультет журналистики МГУ</footer>
-  <img id="logoPreload" src="logo.png?v=1" alt="" style="display:none" crossorigin="anonymous" />
 
 <script>
-/* ===== CONFIG ===== */
 const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
-const LOGO_URL = "logo.png?v=1";
-const MAX_UPLOAD_MB = 12;
-const MAX_SIDE = 1024;
-const PAYLOAD_LIMIT_BYTES = 4.5 * 1024 * 1024;
+const MAX_MB = 12;
+const MAX_SIZE = 1024;
 
-/* ===== STATE / DOM ===== */
-let file = null, role = "журналист";
-const input = document.getElementById('fileInput');
-const drop = document.getElementById('dropzone');
-const picked = document.getElementById('picked');
-const statusEl = document.getElementById('status');
-const resultBox = document.getElementById('resultBox');
-const resultImg = document.getElementById('resultImg');
-const download = document.getElementById('download');
-const err = document.getElementById('error');
+let file = null;
+let role = "журналист";
 
-/* ===== Uploader ===== */
-drop.addEventListener('click', ()=>input.click());
-drop.addEventListener('dragover', e => e.preventDefault());
-drop.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); });
-input.addEventListener('change', e => onFile(e.target.files?.[0]));
+const input = document.getElementById("fileInput");
+const drop = document.getElementById("dropzone");
+const picked = document.getElementById("picked");
+const statusEl = document.getElementById("status");
+const err = document.getElementById("error");
+const resultBox = document.getElementById("resultBox");
+const resultImg = document.getElementById("resultImg");
+const download = document.getElementById("download");
 
-function onFile(f){
+/* === Upload === */
+drop.addEventListener("click", () => input.click());
+drop.addEventListener("dragover", e => e.preventDefault());
+drop.addEventListener("drop", e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files?.[0];
+  if (f) handleFile(f);
+});
+input.addEventListener("change", e => handleFile(e.target.files?.[0]));
+
+function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
+function hideErr(){ err.style.display="none"; err.innerText=""; }
+
+function handleFile(f){
   if (!f) return;
-  if (!(f.type||"").startsWith('image/')) return showErr("Нужен файл изображения.");
-  const t = (f.type || "").toLowerCase();
-  const name = (f.name || "").toLowerCase();
-  if (t.includes("heic") || t.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif")) {
-    return showErr("HEIC/HEIF не поддерживается. Загрузите JPG/PNG/WEBP.");
-  }
-  if (f.size > MAX_UPLOAD_MB*1024*1024) return showErr(`Слишком большой файл (до ${MAX_UPLOAD_MB} МБ).`);
-  file = f;
-  picked.textContent = `Вы выбрали: ${f.name}`;
+  if (!f.type.startsWith("image/")) return showErr("Нужен файл изображения.");
+  if (f.size > MAX_MB*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
   hideErr();
-  autoGenerate();
+  file = f;
+  picked.innerText = `Вы выбрали: ${f.name}`;
+  generateImage();
 }
-document.querySelectorAll('.role').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.role').forEach(x => x.classList.remove('active'));
-  b.classList.add('active'); role = b.dataset.role; autoGenerate();
-}));
 
-/* ===== UI helpers ===== */
-function showErr(m){ err.style.display='block'; err.innerText = m; statusEl.textContent = "Ошибка"; }
-function hideErr(){ err.style.display='none'; err.innerText=""; }
-function setStatus(s){ statusEl.textContent = s; }
-
-/* ===== Image helpers ===== */
-function loadImage(src){
-  return new Promise((resolve,reject)=>{
-    const img=new Image(); img.crossOrigin="anonymous";
-    img.onload=()=>resolve(img);
-    img.onerror=()=>reject(new Error("Load failed: "+src));
-    img.src = src.includes("data:") ? src : (src + (src.includes("?")?"":"?v=" + Date.now()));
+document.querySelectorAll(".role").forEach(b=>{
+  b.addEventListener("click",()=>{
+    document.querySelectorAll(".role").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    role=b.dataset.role;
+    generateImage();
   });
-}
-function b64Bytes(b64){
-  const L = b64.length;
-  return Math.floor((L * 3) / 4) - (b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0);
-}
-async function fileToResizedB64(file){
+});
+
+/* === Resize === */
+async function resizeFile(f){
   const dataUrl = await new Promise((res,rej)=>{
-    const r=new FileReader();
-    r.onload=()=>res(r.result); r.onerror=()=>rej(new Error("Не удалось прочитать файл"));
-    r.readAsDataURL(file);
+    const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f);
   });
   const img = await loadImage(dataUrl);
-  let W = img.naturalWidth||img.width, H = img.naturalHeight||img.height;
-  let k = Math.max(W,H) > MAX_SIDE ? MAX_SIDE / Math.max(W,H) : 1;
-  W = Math.round(W*k); H = Math.round(H*k);
-  let c=document.createElement('canvas'); c.width=W; c.height=H;
-  let ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high';
-  ctx.drawImage(img,0,0,W,H);
-  let quality=0.9;
-  let b64=c.toDataURL('image/jpeg',quality).split(',')[1];
-  while (b64Bytes(b64) > PAYLOAD_LIMIT_BYTES) {
-    if (quality>0.6) quality-=0.1; else {
-      W=Math.round(W*0.9); H=Math.round(H*0.9);
-      if (W<512 || H<512) break;
-      const c2=document.createElement('canvas'); c2.width=W; c2.height=H;
-      const ctx2=c2.getContext('2d'); ctx2.imageSmoothingQuality='high';
-      ctx2.drawImage(c,0,0,W,H); c=c2;
+  let w = img.width, h = img.height;
+  const k = Math.max(w,h)>MAX_SIZE ? MAX_SIZE/Math.max(w,h) : 1;
+  w = Math.round(w*k); h = Math.round(h*k);
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  c.getContext("2d").drawImage(img,0,0,w,h);
+  return c.toDataURL("image/jpeg",0.9).split(",")[1];
+}
+function loadImage(src){
+  return new Promise((res,rej)=>{
+    const img=new Image(); img.onload=()=>res(img); img.onerror=()=>rej(new Error("Ошибка загрузки изображения")); img.src=src;
+  });
+}
+
+/* === AI === */
+async function generateImage(){
+  if (!file) return;
+  statusEl.innerText="Обработка изображения…";
+  resultBox.style.display="none"; download.style.display="none";
+
+  try{
+    const b64 = await resizeFile(file);
+    const fd = new FormData();
+    fd.append("role", role);
+    fd.append("image_b64", b64);
+
+    const r = await fetch(`${API_BASE}/api/generate`, { method:"POST", body:fd });
+    const t = await r.text();
+    let j = null;
+    try{ j = JSON.parse(t); }catch{ showErr("Некорректный ответ ИИ"); return; }
+
+    if (!r.ok || j.error) {
+      showErr("ИИ вернул ошибку: "+(j.details||j.error||r.statusText));
+      console.error("AI error:", j);
+      return;
     }
-    b64=c.toDataURL('image/jpeg',quality).split(',')[1];
-  }
-  return b64;
-}
-function roundRect(ctx,x,y,w,h,r){
-  r=Math.min(r,w/2,h/2);
-  ctx.beginPath();
-  ctx.moveTo(x+r,y);
-  ctx.arcTo(x+w,y,x+w,y+h,r);
-  ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r);
-  ctx.arcTo(x,y,x+w,y,r);
-  ctx.closePath();
-}
-async function addLogoToDataURL(dataURL){
-  try{
-    const base=await loadImage(dataURL);
-    const logoEl=document.getElementById('logoPreload');
-    const logo=(logoEl && logoEl.naturalWidth>0)?logoEl:await loadImage(LOGO_URL);
-    const W=base.naturalWidth||base.width, H=base.naturalHeight||base.height;
-    const c=document.createElement('canvas'); c.width=W; c.height=H;
-    const ctx=c.getContext('2d'); ctx.drawImage(base,0,0,W,H);
-    const margin=Math.round(Math.min(W,H)*0.02);
-    const targetW=Math.round(W*0.18);
-    const ratio=(logo.naturalWidth||logo.width)/(logo.naturalHeight||logo.height);
-    const targetH=Math.round(targetW/ratio);
-    const x=W-targetW-margin, y=H-targetH-margin;
-    const pad=Math.round(targetW*0.10);
-    const bx=x-pad, by=y-pad, bw=targetW+pad*2, bh=targetH+pad*2;
-    const rr=Math.round(Math.min(bw,bh)*0.18);
-    ctx.save(); roundRect(ctx,bx,by,bw,bh,rr); ctx.fillStyle="rgba(255,255,255,0.94)"; ctx.fill(); ctx.restore();
-    ctx.globalAlpha=0.98; ctx.drawImage(logo,x,y,targetW,targetH); ctx.globalAlpha=1;
-    return c.toDataURL('image/png');
-  }catch{ return dataURL; }
-}
 
-/* ===== Маска для inpaint на бэкенде ===== */
-async function buildMaskForAI(imageB64){
-  const img = await loadImage("data:image/*;base64,"+imageB64);
-  const W = img.naturalWidth||img.width, H = img.naturalHeight||img.height;
-  const c = document.createElement('canvas'); c.width=W; c.height=H;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,W,H);
-  const cx=W*0.50, cy=H*0.44, rx=W*0.25, ry=H*0.38;
-  ctx.save(); ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); ctx.closePath();
-  ctx.shadowColor="black"; ctx.shadowBlur=Math.max(W,H)*0.012;
-  ctx.fillStyle="#000000"; ctx.fill(); ctx.restore();
-  return c.toDataURL('image/png').split(',')[1];
-}
-
-/* ===== AI call ===== */
-async function callAI(imageB64, maskB64){
-  const fd = new FormData();
-  fd.append("role", role);
-  fd.append("image_b64", imageB64);
-  if (maskB64) fd.append("mask_b64", maskB64);
-  const url = (API_BASE||"") + "/api/generate";
-  const resp = await fetch(url, { method:"POST", body:fd }).catch(()=>null);
-  if (!resp) return null;
-  const txt = await resp.text().catch(()=>null);
-  let data=null; try{ data=JSON.parse(txt);}catch{}
-  if (!resp.ok) {
-    const details = data?.details || txt || "unknown";
-    showErr(`ИИ вернул ошибку: ${data?.error||resp.status}\n${details}`);
-    return null;
-  }
-  if (data?.imageBase64) return "data:image/png;base64,"+data.imageBase64;
-  return null;
-}
-
-/* ===== Auto pipeline ===== */
-let genTimer=null;
-function autoGenerate(){
-  if (!file || !role) return;
-  setStatus("Обрабатываем…");
-  resultBox.style.display='none'; download.style.display='none'; hideErr();
-  clearTimeout(genTimer);
-  genTimer=setTimeout(runPipeline, 200);
-}
-
-async function runPipeline(){
-  try{
-    const imgB64  = await fileToResizedB64(file);
-    const maskB64 = await buildMaskForAI(imgB64);
-    const aiUrl   = await callAI(imgB64, maskB64);
-    if (!aiUrl) return; // ошибка уже показана
-
-    const finalUrl = await addLogoToDataURL(aiUrl);
-    resultImg.src = finalUrl;
-    resultBox.style.display='block';
-    download.href = finalUrl;
-    download.style.display='inline-block';
-    setStatus("Готово ✓");
+    if (j.imageBase64){
+      const imgUrl = "data:image/png;base64,"+j.imageBase64;
+      resultImg.src = imgUrl;
+      resultBox.style.display="block";
+      download.href = imgUrl;
+      download.style.display="inline-block";
+      statusEl.innerText="Готово ✓";
+    } else {
+      showErr("ИИ не вернул изображение");
+    }
   }catch(e){
-    showErr(e.message || String(e));
+    showErr(e.message);
   }
 }
 </script>

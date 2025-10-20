@@ -136,8 +136,19 @@ async function resizeFile(f){
 }
 function loadImage(src){
   return new Promise((res,rej)=>{
-    const img=new Image(); img.crossOrigin="anonymous"; img.onload=()=>res(img); img.onerror=()=>rej(new Error("Ошибка загрузки изображения")); img.src=src;
+    const img=new Image(); img.crossOrigin="anonymous"; img.onload=()=>res(img); img.onerror=rej; img.src=src;
   });
+}
+
+/* оценка "почти чёрный" — чтобы не клеить лицо на пустышку */
+async function isMostlyBlack(dataUrl){
+  const img = await loadImage(dataUrl);
+  const c = document.createElement("canvas"); c.width=img.width; c.height=img.height;
+  const g = c.getContext("2d"); g.drawImage(img,0,0);
+  const {data} = g.getImageData(0,0,c.width,c.height);
+  let sum=0, N=data.length/4;
+  for (let i=0;i<data.length;i+=4) sum += (data[i]+data[i+1]+data[i+2])/3;
+  return (sum/N) < 8;
 }
 
 /* вернуть родное лицо поверх результата */
@@ -149,7 +160,7 @@ async function pasteFaceBack(resultDataURL, originalDataURL, w, h){
   g.drawImage(resImg,0,0,cw,ch);
   const cx = cw*0.5, cy = ch*0.43, rx = cw*0.30, ry = ch*0.38; // эллипс лица/шеи
   g.save(); g.beginPath(); g.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); g.clip();
-  g.drawImage(await loadImage(originalDataURL),0,0,cw,ch);
+  g.drawImage(origImg,0,0,cw,ch);
   g.restore();
   return c.toDataURL("image/png");
 }
@@ -187,7 +198,15 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
-/* основная генерация через Gemini */
+/* выбрать aspect для Gemini */
+function pickAspect(w,h){
+  const r = w / h;
+  if (r > 1.25) return "ASPECT_16_9";
+  if (r < 0.85) return "ASPECT_3_4";
+  return "ASPECT_1_1";
+}
+
+/* основная генерация (гибрид: Gemini → fallback Workers AI) */
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
@@ -200,7 +219,8 @@ async function generateImage(){
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
     fd.append("force_upscale", "1024");
-    fd.append("neg", "no classroom, no blackboard, no words in background");
+    fd.append("aspect", pickAspect(resized.width, resized.height));
+    fd.append("neg", "никаких слов, букв и логотипов на фоне; без школьной доски");
 
     const r = await fetchWithTimeout(`${API_BASE}/api/generate`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
@@ -210,17 +230,23 @@ async function generateImage(){
     if (!r.ok || j.error) { const detail = j.details || j.error || r.statusText || "Неизвестная ошибка"; showErr("ИИ вернул ошибку: " + detail); console.error("AI error:", j); return; }
     if (!j.imageBase64) { showErr("ИИ не вернул изображение"); return; }
 
-    // возвращаем лицо + логотип
-    const origUrl = resized.dataUrl;
+    // показать, кто генерил
+    statusEl.innerText = `Готово ✓ · ${j.stage === 'gemini' ? 'Gemini' : 'Workers AI'}`;
+
     let imgUrl = "data:image/png;base64,"+j.imageBase64;
-    imgUrl = await pasteFaceBack(imgUrl, origUrl);
+
+    // если результат не пустой — возвращаем лицо
+    if (!(await isMostlyBlack(imgUrl))) {
+      imgUrl = await pasteFaceBack(imgUrl, resized.dataUrl);
+    }
+
+    // логотип
     imgUrl = await composeLogoOver(imgUrl);
 
     resultImg.src = imgUrl;
     resultBox.style.display="block";
     download.href = imgUrl;
     download.style.display="inline-block";
-    statusEl.innerText="Готово ✓";
   }catch(e){
     if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
     else showErr(e.message || "Неизвестная ошибка сети");

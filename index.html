@@ -108,7 +108,7 @@ document.querySelectorAll(".role").forEach(b=>{
     document.querySelectorAll(".role").forEach(x=>x.classList.remove("active"));
     b.classList.add("active");
     role=b.dataset.role;
-    generateImage();
+    if (file) generateImage();
   });
 });
 
@@ -149,7 +149,7 @@ async function isMostlyBlack(dataUrl){
   return (sum/N) < 8;
 }
 
-/* логотип */
+/* логотип-оверлей */
 async function composeLogoOver(imgDataUrl){
   let baseImg, logoImg;
   try { baseImg = await loadImage(imgDataUrl); } catch { return imgDataUrl; }
@@ -188,36 +188,53 @@ async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
   resultBox.style.display="none"; download.style.display="none"; hideErr();
+
   try{
     const resized = await resizeFile(file);
+
+    // диагностика провайдеров — поможет понять, почему passthrough
+    try{
+      const dbg = await fetchWithTimeout(`${API_BASE}/api/debug`, { method:"GET" }, 6000).then(r=>r.json());
+      statusEl.innerText = `Проверка провайдеров: GEMINI=${dbg.hasKey?'OK':'NO'}, CF_AI=${dbg.hasAI?'OK':'NO'}\nОбработка изображения…`;
+    }catch{}
+
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
     fd.append("width", String(resized.width));
     fd.append("height", String(resized.height));
     fd.append("force_upscale", "1024");
-    // опционально: fd.append("use_exp_model","1"); // попробовать эксп. модель
+    fd.append("use_exp_model", "1"); // важный флаг: пробуем exp-модель
 
     const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
-    let j=null; try{ j=JSON.parse(t); }catch{ showErr("Некорректный ответ сервера"); return; }
+
+    let j = null;
+    try { j = JSON.parse(t); } catch { console.error("Non-JSON reply:", t); showErr("Некорректный ответ сервера (ожидался JSON)."); return; }
 
     let imgUrl;
     if (j.imageBase64) {
-      statusEl.innerText = `Готово ✓ · ${j.stage}`;
+      statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed}`;
       imgUrl = "data:image/png;base64,"+j.imageBase64;
       if (await isMostlyBlack(imgUrl)) imgUrl = resized.dataUrl;
     } else {
-      statusEl.innerText = `Готово (исходник с лого) · ${j.details||''}`;
+      // подробная причина, если ничего не изменилось
+      const reason =
+        (j.details ? `details: ${j.details}` : "") +
+        (j.geminiFail ? `\nGemini: ${JSON.stringify(j.geminiFail)}` : "") +
+        (j.workersAIFail ? `\nWorkersAI: ${JSON.stringify(j.workersAIFail)}` : "");
+      statusEl.innerText = `Переход в passthrough (показан исходник). Причины:\n${reason || 'неизвестно'}`;
       imgUrl = resized.dataUrl;
     }
+
     imgUrl = await composeLogoOver(imgUrl);
     resultImg.src = imgUrl;
     resultBox.style.display="block";
     download.href = imgUrl;
     download.style.display="inline-block";
   }catch(e){
-    showErr(e.name==="AbortError" ? "Превышено время ожидания" : (e.message||"Неизвестная ошибка"));
+    if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
+    else showErr(e.message || "Неизвестная ошибка сети");
   }
 }
 </script>

@@ -14,7 +14,6 @@
     header { text-align:center; margin-top:24px; margin-bottom:16px; }
     h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
     .container { width:100%; max-width:960px; padding:20px; }
-
     .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px;
       background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
     .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
@@ -22,7 +21,6 @@
     .headline { font-weight:700; font-size:18px; }
     .sub { color:var(--muted); font-size:14px; margin-top:6px; }
     .picked { margin-top:10px; font-size:14px; }
-
     .roles { margin-top:24px; }
     .roles-title { text-align:center; font-weight:700; font-size:18px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
@@ -31,16 +29,12 @@
       cursor:pointer; background:#fff; transition:.15s; }
     .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
-
     .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
     .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
-
     .result { margin-top:24px; text-align:center; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
-
     .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
     .btn:hover { background:#059669; }
-
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
   </style>
 </head>
@@ -104,7 +98,6 @@ function fetchWithTimeout(url, init = {}, ms = 90000){
   return fetch(url, { ...init, signal: ctrl.signal }).finally(()=>clearTimeout(id));
 }
 
-/* ===== UI ===== */
 drop.addEventListener("click", () => input.click());
 drop.addEventListener("dragover", e => e.preventDefault());
 drop.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); });
@@ -119,7 +112,16 @@ document.querySelectorAll(".role").forEach(b=>{
   });
 });
 
-/* ===== Image helpers ===== */
+function handleFile(f){
+  if (!f) return;
+  if (!f.type.startsWith("image/")) return showErr("Нужен файл изображения.");
+  if (f.size > MAX_MB*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
+  hideErr();
+  file = f;
+  picked.innerText = `Вы выбрали: ${f.name}`;
+  generateImage();
+}
+
 async function resizeFile(f){
   const dataUrl = await new Promise((res,rej)=>{
     const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f);
@@ -137,7 +139,6 @@ function loadImage(src){
     const img=new Image(); img.crossOrigin="anonymous"; img.onload=()=>res(img); img.onerror=rej; img.src=src;
   });
 }
-
 async function isMostlyBlack(dataUrl){
   const img = await loadImage(dataUrl);
   const c = document.createElement("canvas"); c.width=img.width; c.height=img.height;
@@ -148,25 +149,21 @@ async function isMostlyBlack(dataUrl){
   return (sum/N) < 8;
 }
 
-/* логотип-оверлей (угол, белая подложка) */
+/* логотип */
 async function composeLogoOver(imgDataUrl){
   let baseImg, logoImg;
   try { baseImg = await loadImage(imgDataUrl); } catch { return imgDataUrl; }
   try { logoImg = await loadImage("logo.png"); } catch { return imgDataUrl; }
-
   const w = baseImg.width, h = baseImg.height;
-  const c = document.createElement("canvas"); c.width=w; c.height=h;
-  const g = c.getContext("2d");
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  const g=c.getContext("2d");
   g.drawImage(baseImg,0,0,w,h);
-
   const logoW = Math.max(120, Math.round(w*0.16));
   const scale = logoW / logoImg.width;
   const logoH = Math.round(logoImg.height * scale);
-
   const pad = Math.max(16, Math.round(Math.min(w,h)*0.02));
   const x = w - logoW - pad;
   const y = h - logoH - pad;
-
   g.fillStyle = "rgba(255,255,255,0.85)";
   const br = Math.round(logoH*0.18);
   g.beginPath();
@@ -176,75 +173,51 @@ async function composeLogoOver(imgDataUrl){
   g.arcTo(x,y+logoH,x,y,br);
   g.arcTo(x,y,x+logoW,y,br);
   g.closePath(); g.fill();
-
   g.drawImage(logoImg, x, y, logoW, logoH);
   return c.toDataURL("image/png");
 }
 
 function pickAspect(w,h){
-  const r = w / h;
+  const r = w/h;
   if (r > 1.25) return "ASPECT_16_9";
   if (r < 0.85) return "ASPECT_3_4";
   return "ASPECT_1_1";
-}
-
-/* ===== Main ===== */
-function handleFile(f){
-  if (!f) return;
-  if (!f.type.startsWith("image/")) return showErr("Нужен файл изображения.");
-  if (f.size > MAX_MB*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
-  hideErr();
-  file = f;
-  picked.innerText = `Вы выбрали: ${f.name}`;
-  generateImage();
 }
 
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
   resultBox.style.display="none"; download.style.display="none"; hideErr();
-
   try{
     const resized = await resizeFile(file);
-
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
     fd.append("width", String(resized.width));
     fd.append("height", String(resized.height));
     fd.append("force_upscale", "1024");
-    // негативы против текста/мозаики/глитча добавляются на сервере
+    // опционально: fd.append("use_exp_model","1"); // попробовать эксп. модель
 
-    // Используем безопасный эндпоинт: внутри — анализ → edit-подсказка → генерация
     const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
-
-    let j = null;
-    try { j = JSON.parse(t); } catch { console.error("Non-JSON reply:", t); showErr("Некорректный ответ сервера (ожидался JSON)."); return; }
+    let j=null; try{ j=JSON.parse(t); }catch{ showErr("Некорректный ответ сервера"); return; }
 
     let imgUrl;
     if (j.imageBase64) {
-      statusEl.innerText = `Готово ✓ · ${j.stage === 'gemini' ? 'Gemini' : j.stage}`;
+      statusEl.innerText = `Готово ✓ · ${j.stage}`;
       imgUrl = "data:image/png;base64,"+j.imageBase64;
+      if (await isMostlyBlack(imgUrl)) imgUrl = resized.dataUrl;
     } else {
-      // мягкая посадка: вернулся исходник
-      statusEl.innerText = `Готово (исходник с лого) · причины:\n`+
-        [j.details && `details: ${j.details}`, j.geminiFail && `gemini: ${JSON.stringify(j.geminiFail)}`, j.workersAIFail && `workersAI: ${JSON.stringify(j.workersAIFail)}`]
-          .filter(Boolean).join("\n");
+      statusEl.innerText = `Готово (исходник с лого) · ${j.details||''}`;
       imgUrl = resized.dataUrl;
     }
-
-    // защита от «чёрного кадра»
-    if (await isMostlyBlack(imgUrl)) imgUrl = resized.dataUrl;
-
     imgUrl = await composeLogoOver(imgUrl);
     resultImg.src = imgUrl;
     resultBox.style.display="block";
     download.href = imgUrl;
     download.style.display="inline-block";
   }catch(e){
-    if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
-    else showErr(e.message || "Неизвестная ошибка сети");
+    showErr(e.name==="AbortError" ? "Превышено время ожидания" : (e.message||"Неизвестная ошибка"));
   }
 }
 </script>

@@ -8,58 +8,29 @@
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
     * { box-sizing:border-box; }
-    html,body {
-      margin:0; padding:0;
-      background:var(--bg); color:var(--fg);
-      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;
-    }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; }
     body { display:flex; flex-direction:column; align-items:center; min-height:100vh; }
-
     header { text-align:center; margin-top:24px; margin-bottom:16px; }
     h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
-
     .container { width:100%; max-width:960px; padding:20px; }
-
-    .uploader {
-      border:2px dashed var(--border);
-      border-radius:24px;
-      padding:40px 20px;
-      background:#f9fafb;
-      text-align:center;
-      cursor:pointer;
-      transition:.2s;
-    }
+    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
     .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
     .uploader img.logo { width:72px; height:72px; margin-bottom:12px; }
-
     .headline { font-weight:700; font-size:18px; }
     .sub { color:var(--muted); font-size:14px; margin-top:6px; }
     .picked { margin-top:10px; font-size:14px; }
-
     .roles { margin-top:24px; }
     .roles-title { text-align:center; font-weight:700; font-size:18px; }
-    .roles-grid {
-      display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px;
-    }
+    .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
     @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
-    .role {
-      border:1px solid var(--border);
-      border-radius:14px;
-      padding:12px;
-      font-weight:700;
-      cursor:pointer;
-      background:#fff;
-      transition:.15s;
-    }
+    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
     .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
-
+    .opts { margin-top:18px; display:flex; gap:16px; justify-content:center; align-items:center; flex-wrap:wrap; color:#111827; font-size:14px;}
     .status { margin-top:20px; text-align:center; font-size:15px; }
     .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
-
     .result { margin-top:24px; text-align:center; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
-
     .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
     .btn:hover { background:#059669; }
     footer { margin-top:40px; text-align:center; color:var(--muted); font-size:14px; }
@@ -86,6 +57,11 @@
         <button class="role" data-role="блогер">Блогер</button>
         <button class="role" data-role="фотограф">Фотограф</button>
       </div>
+    </div>
+
+    <div class="opts">
+      <label><input type="checkbox" id="maskToggle" checked> Строже сохранять лицо</label>
+      <label><input type="checkbox" id="logoToggle" checked> Добавить логотип</label>
     </div>
 
     <div id="status" class="status">Готово к работе</div>
@@ -117,19 +93,21 @@ const err = document.getElementById("error");
 const resultBox = document.getElementById("resultBox");
 const resultImg = document.getElementById("resultImg");
 const download = document.getElementById("download");
+const maskToggle = document.getElementById("maskToggle");
+const logoToggle = document.getElementById("logoToggle");
 
-/* === helpers === */
+/* helpers */
 function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
 function hideErr(){ err.style.display="none"; err.innerText=""; }
 
-/* таймаут для сетевых запросов */
+/* таймаут */
 function fetchWithTimeout(url, init = {}, ms = 60000){
   const ctrl = new AbortController();
   const id = setTimeout(()=>ctrl.abort(), ms);
   return fetch(url, { ...init, signal: ctrl.signal }).finally(()=>clearTimeout(id));
 }
 
-/* === Upload === */
+/* uploader */
 drop.addEventListener("click", () => input.click());
 drop.addEventListener("dragover", e => e.preventDefault());
 drop.addEventListener("drop", e => {
@@ -158,7 +136,7 @@ document.querySelectorAll(".role").forEach(b=>{
   });
 });
 
-/* === Resize === */
+/* resize */
 async function resizeFile(f){
   const dataUrl = await new Promise((res,rej)=>{
     const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f);
@@ -169,27 +147,120 @@ async function resizeFile(f){
   w = Math.round(w*k); h = Math.round(h*k);
   const c=document.createElement("canvas"); c.width=w; c.height=h;
   c.getContext("2d").drawImage(img,0,0,w,h);
-  return c.toDataURL("image/jpeg",0.9).split(",")[1];
+  return { b64: c.toDataURL("image/jpeg",0.9).split(",")[1], width:w, height:h };
 }
 function loadImage(src){
   return new Promise((res,rej)=>{
-    const img=new Image(); img.onload=()=>res(img); img.onerror=()=>rej(new Error("Ошибка загрузки изображения")); img.src=src;
+    const img=new Image(); img.crossOrigin="anonymous"; img.onload=()=>res(img); img.onerror=()=>rej(new Error("Ошибка загрузки изображения")); img.src=src;
   });
 }
 
-/* === AI === */
+/* маска лица/шеи (чёрная область — сохраняем, белая — меняем) */
+function buildFaceNeckMaskPNGBase64(w,h){
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  const g=c.getContext("2d");
+
+  // фон: белый (область для изменения)
+  g.fillStyle="#ffffff";
+  g.fillRect(0,0,w,h);
+
+  // параметры эллипса лица
+  const cx = w*0.5;
+  const cy = h*0.43;    // чуть выше центра
+  const rx = w*0.30;    // ширина лица
+  const ry = h*0.38;    // высота лица
+
+  // чёрный — сохраняем (не менять)
+  g.fillStyle="#000000";
+  g.beginPath();
+  g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+  g.fill();
+
+  // шея — чёрный прямоугольник под эллипсом
+  const neckW = w*0.22;
+  const neckH = h*0.16;
+  g.fillRect(cx - neckW/2, cy + ry*0.5, neckW, neckH);
+
+  // лёгкое сглаживание краёв: обводка серым
+  g.strokeStyle="#202020";
+  g.lineWidth=Math.max(2, Math.round(Math.min(w,h)*0.004));
+  g.beginPath();
+  g.ellipse(cx, cy, rx*1.02, ry*1.02, 0, 0, Math.PI*2);
+  g.stroke();
+
+  return c.toDataURL("image/png").split(",")[1];
+}
+
+/* логотип-оверлей */
+async function composeLogoOver(imgDataUrl){
+  if (!logoToggle.checked) return imgDataUrl;
+
+  let baseImg, logoImg;
+  try {
+    baseImg = await loadImage(imgDataUrl);
+  } catch { return imgDataUrl; }
+
+  try {
+    logoImg = await loadImage("logo.png");
+  } catch {
+    // логотип не найден — возвращаем исходник
+    return imgDataUrl;
+  }
+
+  const w = baseImg.width, h = baseImg.height;
+  const c = document.createElement("canvas"); c.width=w; c.height=h;
+  const g = c.getContext("2d");
+  g.drawImage(baseImg,0,0,w,h);
+
+  // размеры логотипа: 16% ширины, но не менее 120px
+  const logoW = Math.max(120, Math.round(w*0.16));
+  const scale = logoW / logoImg.width;
+  const logoH = Math.round(logoImg.height * scale);
+
+  const pad = Math.max(16, Math.round(Math.min(w,h)*0.02));
+  const x = w - logoW - pad;
+  const y = h - logoH - pad;
+
+  // белая подложка с округлением
+  const r = Math.round(logoH*0.18);
+  g.fillStyle = "rgba(255,255,255,0.85)";
+  roundRect(g, x - Math.round(pad*0.35), y - Math.round(pad*0.35), logoW + Math.round(pad*0.7), logoH + Math.round(pad*0.7), r);
+  g.fill();
+
+  // сам логотип
+  g.drawImage(logoImg, x, y, logoW, logoH);
+
+  return c.toDataURL("image/png");
+}
+function roundRect(g, x, y, w, h, r){
+  g.beginPath();
+  g.moveTo(x+r, y);
+  g.arcTo(x+w, y, x+w, y+h, r);
+  g.arcTo(x+w, y+h, x, y+h, r);
+  g.arcTo(x, y+h, x, y, r);
+  g.arcTo(x, y, x+w, y, r);
+  g.closePath();
+}
+
+/* основная генерация */
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
   resultBox.style.display="none"; download.style.display="none"; hideErr();
 
   try{
-    const b64 = await resizeFile(file);
+    const resized = await resizeFile(file);
     const fd = new FormData();
     fd.append("role", role);
-    fd.append("image_b64", b64);
+    fd.append("image_b64", resized.b64);
 
-    const r = await fetchWithTimeout(`${API_BASE}/api/generate`, { method:"POST", body:fd }, 60000);
+    // добавляем маску, если включено
+    if (maskToggle.checked) {
+      const maskB64 = buildFaceNeckMaskPNGBase64(resized.width, resized.height);
+      fd.append("mask_b64", maskB64);
+    }
+
+    const r = await fetchWithTimeout(`${API_BASE}/api/generate`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
 
     let j = null;
@@ -208,7 +279,12 @@ async function generateImage(){
     }
 
     if (j.imageBase64){
-      const imgUrl = "data:image/png;base64,"+j.imageBase64;
+      // возможно, наложим логотип
+      let imgUrl = "data:image/png;base64,"+j.imageBase64;
+      if (logoToggle.checked) {
+        try { imgUrl = await composeLogoOver(imgUrl); }
+        catch(e){ console.warn("Logo overlay failed:", e); }
+      }
       resultImg.src = imgUrl;
       resultBox.style.display="block";
       download.href = imgUrl;
@@ -218,11 +294,8 @@ async function generateImage(){
       showErr("ИИ не вернул изображение");
     }
   }catch(e){
-    if (e.name === "AbortError") {
-      showErr("Превышено время ожидания ответа сервера. Повторите попытку.");
-    } else {
-      showErr(e.message || "Неизвестная ошибка сети");
-    }
+    if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера. Повторите попытку.");
+    else showErr(e.message || "Неизвестная ошибка сети");
   }
 }
 </script>

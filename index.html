@@ -26,21 +26,18 @@
     .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
     .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
-    .opts { margin-top:18px; display:flex; gap:16px; justify-content:center; align-items:center; flex-wrap:wrap; color:#111827; font-size:14px;}
     .status { margin-top:20px; text-align:center; font-size:15px; }
     .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
     .result { margin-top:24px; text-align:center; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
     .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
     .btn:hover { background:#059669; }
-    footer { margin-top:40px; text-align:center; color:var(--muted); font-size:14px; }
+    footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1>Почувствуй себя журналистом</h1>
-    </header>
+    <header><h1>Почувствуй себя журналистом</h1></header>
 
     <div class="uploader" id="dropzone">
       <img src="logo.png" alt="Логотип" class="logo" onerror="this.style.display='none'">
@@ -57,11 +54,6 @@
         <button class="role" data-role="блогер">Блогер</button>
         <button class="role" data-role="фотограф">Фотограф</button>
       </div>
-    </div>
-
-    <div class="opts">
-      <label><input type="checkbox" id="maskToggle" checked> Строже сохранять лицо</label>
-      <label><input type="checkbox" id="logoToggle" checked> Добавить логотип</label>
     </div>
 
     <div id="status" class="status">Готово к работе</div>
@@ -93,15 +85,13 @@ const err = document.getElementById("error");
 const resultBox = document.getElementById("resultBox");
 const resultImg = document.getElementById("resultImg");
 const download = document.getElementById("download");
-const maskToggle = document.getElementById("maskToggle");
-const logoToggle = document.getElementById("logoToggle");
 
 /* helpers */
 function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
 function hideErr(){ err.style.display="none"; err.innerText=""; }
 
 /* таймаут */
-function fetchWithTimeout(url, init = {}, ms = 60000){
+function fetchWithTimeout(url, init = {}, ms = 90000){
   const ctrl = new AbortController();
   const id = setTimeout(()=>ctrl.abort(), ms);
   return fetch(url, { ...init, signal: ctrl.signal }).finally(()=>clearTimeout(id));
@@ -110,11 +100,7 @@ function fetchWithTimeout(url, init = {}, ms = 60000){
 /* uploader */
 drop.addEventListener("click", () => input.click());
 drop.addEventListener("dragover", e => e.preventDefault());
-drop.addEventListener("drop", e => {
-  e.preventDefault();
-  const f = e.dataTransfer.files?.[0];
-  if (f) handleFile(f);
-});
+drop.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); });
 input.addEventListener("change", e => handleFile(e.target.files?.[0]));
 
 function handleFile(f){
@@ -155,64 +141,32 @@ function loadImage(src){
   });
 }
 
-/* маска лица/шеи (чёрная область — сохраняем, белая — меняем) */
+/* маска лица/шеи: чёрное — сохраняем, белое — меняем */
 function buildFaceNeckMaskPNGBase64(w,h){
   const c=document.createElement("canvas"); c.width=w; c.height=h;
   const g=c.getContext("2d");
-
-  // фон: белый (область для изменения)
-  g.fillStyle="#ffffff";
-  g.fillRect(0,0,w,h);
-
-  // параметры эллипса лица
-  const cx = w*0.5;
-  const cy = h*0.43;    // чуть выше центра
-  const rx = w*0.30;    // ширина лица
-  const ry = h*0.38;    // высота лица
-
-  // чёрный — сохраняем (не менять)
-  g.fillStyle="#000000";
-  g.beginPath();
-  g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
-  g.fill();
-
-  // шея — чёрный прямоугольник под эллипсом
-  const neckW = w*0.22;
-  const neckH = h*0.16;
+  // фон — белый (менять)
+  g.fillStyle="#ffffff"; g.fillRect(0,0,w,h);
+  // лицо — чёрный эллипс (сохранить)
+  const cx = w*0.5, cy = h*0.43, rx = w*0.30, ry = h*0.38;
+  g.fillStyle="#000000"; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); g.fill();
+  // шея — чёрный прямоугольник
+  const neckW = w*0.22, neckH = h*0.16;
   g.fillRect(cx - neckW/2, cy + ry*0.5, neckW, neckH);
-
-  // лёгкое сглаживание краёв: обводка серым
-  g.strokeStyle="#202020";
-  g.lineWidth=Math.max(2, Math.round(Math.min(w,h)*0.004));
-  g.beginPath();
-  g.ellipse(cx, cy, rx*1.02, ry*1.02, 0, 0, Math.PI*2);
-  g.stroke();
-
   return c.toDataURL("image/png").split(",")[1];
 }
 
-/* логотип-оверлей */
+/* логотип-оверлей (в правый низ) */
 async function composeLogoOver(imgDataUrl){
-  if (!logoToggle.checked) return imgDataUrl;
-
   let baseImg, logoImg;
-  try {
-    baseImg = await loadImage(imgDataUrl);
-  } catch { return imgDataUrl; }
-
-  try {
-    logoImg = await loadImage("logo.png");
-  } catch {
-    // логотип не найден — возвращаем исходник
-    return imgDataUrl;
-  }
+  try { baseImg = await loadImage(imgDataUrl); } catch { return imgDataUrl; }
+  try { logoImg = await loadImage("logo.png"); } catch { return imgDataUrl; }
 
   const w = baseImg.width, h = baseImg.height;
   const c = document.createElement("canvas"); c.width=w; c.height=h;
   const g = c.getContext("2d");
   g.drawImage(baseImg,0,0,w,h);
 
-  // размеры логотипа: 16% ширины, но не менее 120px
   const logoW = Math.max(120, Math.round(w*0.16));
   const scale = logoW / logoImg.width;
   const logoH = Math.round(logoImg.height * scale);
@@ -221,25 +175,19 @@ async function composeLogoOver(imgDataUrl){
   const x = w - logoW - pad;
   const y = h - logoH - pad;
 
-  // белая подложка с округлением
-  const r = Math.round(logoH*0.18);
+  // белая полупрозрачная подложка
   g.fillStyle = "rgba(255,255,255,0.85)";
-  roundRect(g, x - Math.round(pad*0.35), y - Math.round(pad*0.35), logoW + Math.round(pad*0.7), logoH + Math.round(pad*0.7), r);
-  g.fill();
-
-  // сам логотип
-  g.drawImage(logoImg, x, y, logoW, logoH);
-
-  return c.toDataURL("image/png");
-}
-function roundRect(g, x, y, w, h, r){
+  const br = Math.round(logoH*0.18);
   g.beginPath();
-  g.moveTo(x+r, y);
-  g.arcTo(x+w, y, x+w, y+h, r);
-  g.arcTo(x+w, y+h, x, y+h, r);
-  g.arcTo(x, y+h, x, y, r);
-  g.arcTo(x, y, x+w, y, r);
-  g.closePath();
+  g.moveTo(x+br,y);
+  g.arcTo(x+logoW,y,x+logoW,y+logoH,br);
+  g.arcTo(x+logoW,y+logoH,x,y+logoH,br);
+  g.arcTo(x,y+logoH,x,y,br);
+  g.arcTo(x,y,x+logoW,y,br);
+  g.closePath(); g.fill();
+
+  g.drawImage(logoImg, x, y, logoW, logoH);
+  return c.toDataURL("image/png");
 }
 
 /* основная генерация */
@@ -253,23 +201,14 @@ async function generateImage(){
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
-
-    // добавляем маску, если включено
-    if (maskToggle.checked) {
-      const maskB64 = buildFaceNeckMaskPNGBase64(resized.width, resized.height);
-      fd.append("mask_b64", maskB64);
-    }
+    // всегда шлём маску (inpaint)
+    fd.append("mask_b64", buildFaceNeckMaskPNGBase64(resized.width, resized.height));
 
     const r = await fetchWithTimeout(`${API_BASE}/api/generate`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
 
     let j = null;
-    try { j = JSON.parse(t); }
-    catch {
-      console.error("Non-JSON reply:", t);
-      showErr("Некорректный ответ сервера (ожидался JSON).");
-      return;
-    }
+    try { j = JSON.parse(t); } catch { console.error("Non-JSON reply:", t); showErr("Некорректный ответ сервера (ожидался JSON)."); return; }
 
     if (!r.ok || j.error) {
       const detail = j.details || j.error || r.statusText || "Неизвестная ошибка";
@@ -279,12 +218,9 @@ async function generateImage(){
     }
 
     if (j.imageBase64){
-      // возможно, наложим логотип
+      // накладываем логотип всегда
       let imgUrl = "data:image/png;base64,"+j.imageBase64;
-      if (logoToggle.checked) {
-        try { imgUrl = await composeLogoOver(imgUrl); }
-        catch(e){ console.warn("Logo overlay failed:", e); }
-      }
+      try { imgUrl = await composeLogoOver(imgUrl); } catch(e){ console.warn("Logo overlay failed:", e); }
       resultImg.src = imgUrl;
       resultBox.style.display="block";
       download.href = imgUrl;

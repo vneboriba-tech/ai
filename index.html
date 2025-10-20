@@ -29,7 +29,7 @@
       cursor:pointer; background:#fff; transition:.15s; }
     .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
-    .status { margin-top:20px; text-align:center; font-size:15px; }
+    .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
     .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
     .result { margin-top:24px; text-align:center; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
@@ -140,7 +140,6 @@ function loadImage(src){
   });
 }
 
-/* оценка "почти чёрный" — чтобы не клеить лицо на пустышку */
 async function isMostlyBlack(dataUrl){
   const img = await loadImage(dataUrl);
   const c = document.createElement("canvas"); c.width=img.width; c.height=img.height;
@@ -165,7 +164,7 @@ async function pasteFaceBack(resultDataURL, originalDataURL, w, h){
   return c.toDataURL("image/png");
 }
 
-/* логотип-оверлей (в правый низ) */
+/* логотип-оверлей */
 async function composeLogoOver(imgDataUrl){
   let baseImg, logoImg;
   try { baseImg = await loadImage(imgDataUrl); } catch { return imgDataUrl; }
@@ -198,7 +197,7 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
-/* выбрать aspect для Gemini */
+/* выбрать аспект (для Gemini) */
 function pickAspect(w,h){
   const r = w / h;
   if (r > 1.25) return "ASPECT_16_9";
@@ -206,7 +205,7 @@ function pickAspect(w,h){
   return "ASPECT_1_1";
 }
 
-/* основная генерация (гибрид: Gemini → fallback Workers AI) */
+/* основная генерация */
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
@@ -227,20 +226,45 @@ async function generateImage(){
 
     let j = null;
     try { j = JSON.parse(t); } catch { console.error("Non-JSON reply:", t); showErr("Некорректный ответ сервера (ожидался JSON)."); return; }
-    if (!r.ok || j.error) { const detail = j.details || j.error || r.statusText || "Неизвестная ошибка"; showErr("ИИ вернул ошибку: " + detail); console.error("AI error:", j); return; }
-    if (!j.imageBase64) { showErr("ИИ не вернул изображение"); return; }
+
+    // если оба провайдера не дали картинку — сервер может вернуть пасс-тру
+    if (!r.ok || j.error) {
+      // fallback на клиенте: покажем исходник с логотипом + текст причин
+      let imgUrl = await composeLogoOver(resized.dataUrl);
+      resultImg.src = imgUrl;
+      resultBox.style.display="block";
+      download.href = imgUrl;
+      download.style.display="inline-block";
+
+      const reasons = [
+        j.details ? `details: ${j.details}` : "",
+        j.geminiFail ? `gemini: ${JSON.stringify(j.geminiFail)}` : "",
+        j.workersAIFail ? `workersAI: ${JSON.stringify(j.workersAIFail)}` : ""
+      ].filter(Boolean).join("\n");
+      statusEl.innerText = `Готово (показан исходник с лого) · причины:\n${reasons || 'неизвестно'}`;
+      return;
+    }
+
+    if (!j.imageBase64) {
+      // то же поведение: исходник с лого
+      let imgUrl = await composeLogoOver(resized.dataUrl);
+      resultImg.src = imgUrl;
+      resultBox.style.display="block";
+      download.href = imgUrl;
+      download.style.display="inline-block";
+      statusEl.innerText = "Готово (показан исходник с лого) · причина: модель не вернула изображение";
+      return;
+    }
 
     // показать, кто генерил
-    statusEl.innerText = `Готово ✓ · ${j.stage === 'gemini' ? 'Gemini' : 'Workers AI'}`;
+    statusEl.innerText = `Готово ✓ · ${j.stage ? (j.stage === 'gemini' ? 'Gemini' : j.stage) : 'unknown'}`;
 
     let imgUrl = "data:image/png;base64,"+j.imageBase64;
 
-    // если результат не пустой — возвращаем лицо
+    // не «клеим лицо» если пустышка
     if (!(await isMostlyBlack(imgUrl))) {
       imgUrl = await pasteFaceBack(imgUrl, resized.dataUrl);
     }
-
-    // логотип
     imgUrl = await composeLogoOver(imgUrl);
 
     resultImg.src = imgUrl;

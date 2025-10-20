@@ -8,12 +8,14 @@
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
     * { box-sizing:border-box; }
-    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;}
     body { display:flex; flex-direction:column; align-items:center; min-height:100vh; }
     header { text-align:center; margin-top:24px; margin-bottom:16px; }
     h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
     .container { width:100%; max-width:960px; padding:20px; }
-    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
+    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px;
+      background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
     .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
     .uploader img.logo { width:72px; height:72px; margin-bottom:12px; }
     .headline { font-weight:700; font-size:18px; }
@@ -23,7 +25,8 @@
     .roles-title { text-align:center; font-weight:700; font-size:18px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
     @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
-    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
+    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700;
+      cursor:pointer; background:#fff; transition:.15s; }
     .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
     .status { margin-top:20px; text-align:center; font-size:15px; }
@@ -133,7 +136,7 @@ async function resizeFile(f){
   w = Math.round(w*k); h = Math.round(h*k);
   const c=document.createElement("canvas"); c.width=w; c.height=h;
   c.getContext("2d").drawImage(img,0,0,w,h);
-  return { b64: c.toDataURL("image/jpeg",0.9).split(",")[1], width:w, height:h };
+  return { b64: c.toDataURL("image/jpeg",0.9).split(",")[1], width:w, height:h, dataUrl: c.toDataURL("image/jpeg",0.9) };
 }
 function loadImage(src){
   return new Promise((res,rej)=>{
@@ -145,15 +148,43 @@ function loadImage(src){
 function buildFaceNeckMaskPNGBase64(w,h){
   const c=document.createElement("canvas"); c.width=w; c.height=h;
   const g=c.getContext("2d");
-  // фон — белый (менять)
-  g.fillStyle="#ffffff"; g.fillRect(0,0,w,h);
-  // лицо — чёрный эллипс (сохранить)
+  g.fillStyle="#ffffff"; g.fillRect(0,0,w,h); // менять
   const cx = w*0.5, cy = h*0.43, rx = w*0.30, ry = h*0.38;
   g.fillStyle="#000000"; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); g.fill();
-  // шея — чёрный прямоугольник
   const neckW = w*0.22, neckH = h*0.16;
   g.fillRect(cx - neckW/2, cy + ry*0.5, neckW, neckH);
   return c.toDataURL("image/png").split(",")[1];
+}
+function invertMaskB64(maskB64){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const c = document.createElement("canvas");
+      c.width = img.width; c.height = img.height;
+      const g = c.getContext("2d");
+      g.drawImage(img,0,0);
+      const id = g.getImageData(0,0,c.width,c.height);
+      const d = id.data;
+      for (let i=0;i<d.length;i+=4){ d[i]=255-d[i]; d[i+1]=255-d[i+1]; d[i+2]=255-d[i+2]; }
+      g.putImageData(id,0,0);
+      resolve(c.toDataURL("image/png").split(",")[1]);
+    };
+    img.src = "data:image/png;base64,"+maskB64;
+  });
+}
+
+/* вернуть родное лицо поверх результата */
+async function pasteFaceBack(resultDataURL, originalDataURL, w, h){
+  const [resImg, origImg] = await Promise.all([loadImage(resultDataURL), loadImage(originalDataURL)]);
+  const cw = w || resImg.width, ch = h || resImg.height;
+  const c = document.createElement("canvas"); c.width=cw; c.height=ch;
+  const g = c.getContext("2d");
+  g.drawImage(resImg,0,0,cw,ch);
+  const cx = cw*0.5, cy = ch*0.43, rx = cw*0.30, ry = ch*0.38;
+  g.save(); g.beginPath(); g.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); g.clip();
+  g.drawImage(origImg,0,0,cw,ch);
+  g.restore();
+  return c.toDataURL("image/png");
 }
 
 /* логотип-оверлей (в правый низ) */
@@ -175,7 +206,6 @@ async function composeLogoOver(imgDataUrl){
   const x = w - logoW - pad;
   const y = h - logoH - pad;
 
-  // белая полупрозрачная подложка
   g.fillStyle = "rgba(255,255,255,0.85)";
   const br = Math.round(logoH*0.18);
   g.beginPath();
@@ -198,37 +228,36 @@ async function generateImage(){
 
   try{
     const resized = await resizeFile(file);
+    const mask = buildFaceNeckMaskPNGBase64(resized.width, resized.height);
+    const maskInv = await invertMaskB64(mask);
+
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
-    // всегда шлём маску (inpaint)
-    fd.append("mask_b64", buildFaceNeckMaskPNGBase64(resized.width, resized.height));
+    fd.append("mask_b64", mask);
+    fd.append("mask_inv_b64", maskInv);
+    fd.append("force_upscale", "1024");
+    fd.append("neg", "remove classroom, chalkboard, any background text; no words on background");
 
     const r = await fetchWithTimeout(`${API_BASE}/api/generate`, { method:"POST", body:fd }, 90000);
     const t = await r.text();
 
     let j = null;
     try { j = JSON.parse(t); } catch { console.error("Non-JSON reply:", t); showErr("Некорректный ответ сервера (ожидался JSON)."); return; }
+    if (!r.ok || j.error) { const detail = j.details || j.error || r.statusText || "Неизвестная ошибка"; showErr("ИИ вернул ошибку: " + detail); console.error("AI error:", j); return; }
+    if (!j.imageBase64) { showErr("ИИ не вернул изображение"); return; }
 
-    if (!r.ok || j.error) {
-      const detail = j.details || j.error || r.statusText || "Неизвестная ошибка";
-      showErr("ИИ вернул ошибку: " + detail);
-      console.error("AI error:", j);
-      return;
-    }
+    // пастим родное лицо, затем логотип
+    let imgUrl = "data:image/png;base64,"+j.imageBase64;
+    const origUrl = resized.dataUrl;
+    const tmp = await pasteFaceBack(imgUrl, origUrl);
+    imgUrl = await composeLogoOver(tmp);
 
-    if (j.imageBase64){
-      // накладываем логотип всегда
-      let imgUrl = "data:image/png;base64,"+j.imageBase64;
-      try { imgUrl = await composeLogoOver(imgUrl); } catch(e){ console.warn("Logo overlay failed:", e); }
-      resultImg.src = imgUrl;
-      resultBox.style.display="block";
-      download.href = imgUrl;
-      download.style.display="inline-block";
-      statusEl.innerText="Готово ✓";
-    } else {
-      showErr("ИИ не вернул изображение");
-    }
+    resultImg.src = imgUrl;
+    resultBox.style.display="block";
+    download.href = imgUrl;
+    download.style.display="inline-block";
+    statusEl.innerText="Готово ✓";
   }catch(e){
     if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера. Повторите попытку.");
     else showErr(e.message || "Неизвестная ошибка сети");

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Почувствуй себя журналистом</title>
-  <meta name="description" content="Журналист / Блогер / Фотограф — смена фона и образа с сохранением лица и рук" />
+  <meta name="description" content="Журналист / Блогер / Фотограф — жёсткая смена фона и мягкая смена одежды с сохранением лица и рук" />
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
     * { box-sizing:border-box; }
@@ -35,6 +35,7 @@
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
     pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
   </style>
+  <!-- TF.js + BodyPix -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js"></script>
 </head>
@@ -79,35 +80,28 @@ const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
 const MAX_MB = 12;
 const MAX_SIZE = 1024;
 
-let file = null;
-let role = "журналист";
-let bp = null;
+let file=null, role="журналист", bp=null;
 
-const S_BG_STRENGTH = 0.68; // сила инпейнта фона
-const S_WARDROBE    = 0.38; // мягкая смена одежды
+const CLOTH_STRENGTH = 0.35; // мягкая смена одежды
 
 const input = document.getElementById("fileInput");
-const drop = document.getElementById("dropzone");
-const picked = document.getElementById("picked");
-const statusEl = document.getElementById("status");
-const err = document.getElementById("error");
-const resultBox = document.getElementById("resultBox");
-const resultImg = document.getElementById("resultImg");
-const download = document.getElementById("download");
-const logsEl = document.getElementById("logs");
+const drop  = document.getElementById("dropzone");
+const picked= document.getElementById("picked");
+const statusEl=document.getElementById("status");
+const errEl=document.getElementById("error");
+const resultBox=document.getElementById("resultBox");
+const resultImg=document.getElementById("resultImg");
+const download=document.getElementById("download");
+const logsEl=document.getElementById("logs");
 
-function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
-function hideErr(){ err.style.display="none"; err.innerText=""; }
-function log(obj){ try{ logsEl.style.display="block"; logsEl.textContent = typeof obj==="string"?obj:JSON.stringify(obj,null,2);}catch{} }
-
-function fetchTO(url, init={}, ms=120000){
-  const ctrl = new AbortController(); const id=setTimeout(()=>ctrl.abort(),ms);
-  return fetch(url, {...init, signal:ctrl.signal}).finally(()=>clearTimeout(id));
-}
+function showErr(m){ errEl.style.display="block"; errEl.innerText=m; statusEl.innerText="Ошибка"; }
+function hideErr(){ errEl.style.display="none"; errEl.innerText=""; }
+function log(o){ try{ logsEl.style.display="block"; logsEl.textContent=typeof o==="string"?o:JSON.stringify(o,null,2);}catch{} }
+function fetchTO(url, init={}, ms=120000){ const c=new AbortController(); const id=setTimeout(()=>c.abort(),ms); return fetch(url,{...init,signal:c.signal}).finally(()=>clearTimeout(id)); }
 
 drop.addEventListener("click",()=>input.click());
 drop.addEventListener("dragover",e=>e.preventDefault());
-drop.addEventListener("drop",e=>{e.preventDefault(); const f=e.dataTransfer.files?.[0]; if(f) handleFile(f);});
+drop.addEventListener("drop",e=>{e.preventDefault();const f=e.dataTransfer.files?.[0];if(f)handleFile(f);});
 input.addEventListener("change",e=>handleFile(e.target.files?.[0]));
 
 document.querySelectorAll(".role").forEach(b=>{
@@ -120,7 +114,7 @@ document.querySelectorAll(".role").forEach(b=>{
 });
 
 function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
-async function loadBP(){ if (bp) return bp; statusEl.innerText="Загрузка сегментации…"; bp = await bodyPix.load({architecture:"MobileNetV1", outputStride:16, multiplier:0.75, quantBytes:2}); return bp; }
+async function loadBP(){ if (bp) return bp; statusEl.innerText="Загрузка сегментации…"; bp=await bodyPix.load({architecture:"MobileNetV1", outputStride:16, multiplier:0.75, quantBytes:2}); return bp; }
 
 function handleFile(f){
   if (!f) return;
@@ -130,74 +124,79 @@ function handleFile(f){
 }
 
 async function resizeFile(f){
-  const dataUrl = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); });
-  const im = await loadImg(dataUrl);
-  let w=im.width,h=im.height, k=Math.max(w,h)>MAX_SIZE?MAX_SIZE/Math.max(w,h):1;
+  const du=await new Promise((res,rej)=>{const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f);});
+  const im=await loadImg(du); let w=im.width,h=im.height,k=Math.max(w,h)>MAX_SIZE?MAX_SIZE/Math.max(w,h):1;
   w=Math.round(w*k); h=Math.round(h*k);
   const c=document.createElement("canvas"); c.width=w; c.height=h; c.getContext("2d").drawImage(im,0,0,w,h);
-  const du=c.toDataURL("image/jpeg",0.92);
-  return { dataUrl: du, b64: du.split(",")[1], w, h };
+  const out=c.toDataURL("image/jpeg",0.92);
+  return {w,h, dataUrl:out, b64:out.split(",")[1]};
 }
 
-/* строим две вещи:
-   1) mask_bg_b64 — белое=ФОН (менять), чёрное=ЧЕЛОВЕК (сохранить);
-   2) overlay_headhands_b64 — PNG с альфой (голова+шея+руки), для финального оверлея. */
-async function buildMasks(dataUrl){
-  const model = await loadBP();
-  const img = await loadImg(dataUrl);
+/* Строим 3 слоя:
+   - mattePerson (альфа всей фигуры) — для вырезания и наложения на фон
+   - matteHeadHands — для защиты головы и кистей
+   - matteBodyOnly — одежда без головы/кистей (для wardrobe)
+*/
+async function buildMattes(dataUrl){
+  const model=await loadBP(); const img=await loadImg(dataUrl);
   const w=img.width,h=img.height;
 
-  // сегментация частей
-  const parts = await model.segmentPersonParts(img, { internalResolution:'medium', segmentationThreshold:0.7 });
+  const person=await model.segmentPerson(img,{internalResolution:'medium',segmentationThreshold:0.7});
+  const parts =await model.segmentPersonParts(img,{internalResolution:'medium',segmentationThreshold:0.7});
 
-  // id частей (BodyPix): 0—face,1—hair, 2–7 arms/legs etc (зависят от модели).
-  // Возьмём face, hair, left/right arm & hand (обычно 2–5).
-  const HEAD = new Set([0,1]);
-  const ARMS = new Set([2,3,4,5]); // л/п рука/предплечье
+  const HEAD=new Set([0,1]); // face, hair
+  const ARMS=new Set([2,3,4,5]); // руки
 
-  const isHeadOrArms = i => HEAD.has(parts.data[i]) || ARMS.has(parts.data[i]);
+  const makeCanvas=(alphaField)=>{
+    const c=document.createElement("canvas"); c.width=w; c.height=h;
+    const g=c.getContext("2d"); const id=g.createImageData(w,h);
+    for(let i=0;i<w*h;i++){ const a=alphaField[i]|0; id.data[i*4+3]=a; }
+    g.putImageData(id,0,0); return c;
+  };
 
-  // --- MASK_BG: белый=менять, чёрный=оставить (человек)
-  const c1=document.createElement("canvas"); c1.width=w; c1.height=h;
-  const g1=c1.getContext("2d");
-  const i1=g1.createImageData(w,h);
-  for (let i=0;i<w*h;i++){
-    const v = isHeadOrArms(i) || parts.data[i]!==-1 ? 0 : 255; // всё, что модель считает человеком, оставляем
-    i1.data[i*4+0]=v; i1.data[i*4+1]=v; i1.data[i*4+2]=v; i1.data[i*4+3]=255;
-  }
-  g1.putImageData(i1,0,0);
+  // mattePerson
+  const personA=new Uint8ClampedArray(w*h);
+  for(let i=0;i<w*h;i++){ personA[i]=person.data[i]===1?255:0; }
+  const cPerson=makeCanvas(personA);
+  // размытие края
+  const cPersonB=document.createElement("canvas"); cPersonB.width=w;cPersonB.height=h;
+  const gb=cPersonB.getContext("2d"); gb.filter="blur(4px)"; gb.drawImage(cPerson,0,0);
 
-  // расширим белое (фон) на 10px и снизу «подиум» — чтобы добавить реквизит
-  const c2=document.createElement("canvas"); c2.width=w; c2.height=h;
-  const g2=c2.getContext("2d"); g2.filter="blur(5px)"; g2.drawImage(c1,0,0);
-  const g2b=c2.getContext("2d"); // already blurred
-  // добавим полосу снизу
-  g2b.fillStyle="#fff"; g2b.fillRect(0, h-Math.max(10,Math.round(h*0.1)), w, h);
+  // head+hands
+  const hhA=new Uint8ClampedArray(w*h);
+  for(let i=0;i<w*h;i++){ const pid=parts.data[i]; hhA[i]=(HEAD.has(pid)||ARMS.has(pid))?255:0; }
+  const cHH=makeCanvas(hhA); const cHHB=document.createElement("canvas"); cHHB.width=w;cHHB.height=h; const ghh=cHHB.getContext("2d"); ghh.filter="blur(6px)"; ghh.drawImage(cHH,0,0);
 
-  const mask_bg_b64 = c2.toDataURL("image/png").split(",")[1];
+  // bodyOnly = person - head&hands
+  const bodyA=new Uint8ClampedArray(w*h);
+  for(let i=0;i<w*h;i++){ bodyA[i]=(personA[i] && !hhA[i])?255:0; }
+  const cBody=makeCanvas(bodyA); const cBodyB=document.createElement("canvas"); cBodyB.width=w;cBodyB.height=h; const gbod=cBodyB.getContext("2d"); gbod.filter="blur(5px)"; gbod.drawImage(cBody,0,0);
 
-  // --- OVERLAY: голова+шея+руки (мягкая альфа)
-  const base = await loadImg(dataUrl);
-  const m=document.createElement("canvas"); m.width=w; m.height=h;
-  const gm=m.getContext("2d");
-  const id=gm.createImageData(w,h);
-  for (let i=0;i<w*h;i++){
-    const v = isHeadOrArms(i) ? 255 : 0;
-    id.data[i*4+0]=0; id.data[i*4+1]=0; id.data[i*4+2]=0; id.data[i*4+3]=v;
-  }
-  gm.putImageData(id,0,0);
-  const blur=document.createElement("canvas"); blur.width=w; blur.height=h;
-  const gb=blur.getContext("2d"); gb.filter="blur(7px)"; gb.drawImage(m,0,0);
-  const overlay=document.createElement("canvas"); overlay.width=w; overlay.height=h;
-  const go=overlay.getContext("2d");
-  go.drawImage(base,0,0,w,h);
-  go.globalCompositeOperation="destination-in"; go.drawImage(blur,0,0); go.globalCompositeOperation="source-over";
-  const overlay_headhands_b64 = overlay.toDataURL("image/png").split(",")[1];
+  // превратим в PNG-слои
+  const base=await loadImg(dataUrl);
+  const cut = (maskCanvas)=>{ const cv=document.createElement("canvas"); cv.width=w; cv.height=h; const g=cv.getContext("2d"); g.drawImage(base,0,0,w,h); g.globalCompositeOperation="destination-in"; g.drawImage(maskCanvas,0,0,w,h); g.globalCompositeOperation="source-over"; return cv.toDataURL("image/png").split(",")[1]; };
 
-  return { mask_bg_b64, overlay_headhands_b64 };
+  return {
+    mattePerson_b64: cPersonB.toDataURL("image/png").split(",")[1],
+    headHands_png_b64: cut(cHHB),
+    bodyOnly_mask_b64: cBodyB.toDataURL("image/png").split(",")[1]
+  };
 }
 
-/* лого-оверлей */
+function bgPrompt(role){
+  if (role==="журналист") return "wide TV newsroom background: broadcast cameras, boom microphones, glass anchor desk, video walls with abstract news graphics; cinematic editorial lighting; photorealistic; no readable text";
+  if (role==="блогер")    return "trendy creator studio background: ring light, green screen, camera on tripod, softbox lights, colorful LED accents, cozy décor; photorealistic; no readable text";
+  if (role==="фотограф")  return "professional photography studio background: backdrop rolls, C-stands, softboxes, light stands, camera gear; moody studio lighting; photorealistic; no readable text";
+  return "neutral professional studio background; photorealistic; no text";
+}
+function outfitPrompt(role){
+  if (role==="журналист") return "update ONLY clothing to smart-casual journalist style: blazer or tailored jacket over the current outfit, neutral tones; keep the same person and identity; photorealistic";
+  if (role==="блогер")    return "update ONLY clothing to stylish casual blogger style: light hoodie or tee, denim or relaxed trousers; keep the same person and identity; photorealistic";
+  if (role==="фотограф")  return "update ONLY clothing to practical photographer style: dark utility vest or jacket; keep the same person and identity; photorealistic";
+  return "subtle outfit update; keep identity";
+}
+
+/* логотип-оверлей */
 async function composeLogoOver(imgDataUrl){
   const base = await loadImg(imgDataUrl);
   const logo = await loadImg("logo.png").catch(()=>null);
@@ -213,76 +212,64 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
-function bgPrompt(role){
-  if (role==="журналист") return "TV news studio with broadcast cameras, boom mics, glass anchor desk, video walls showing newsroom graphics; cinematic editorial lighting; photorealistic; no text";
-  if (role==="блогер")    return "creator studio with ring light, green screen, camera on tripod, softbox lights, colorful LED accents; photorealistic; no text";
-  if (role==="фотограф")  return "professional photo studio with backdrop rolls, C-stands, softboxes and camera gear; moody studio lighting; photorealistic; no text";
-  return "neutral professional studio background; photorealistic; no text";
-}
-function outfitPrompt(role){
-  if (role==="журналист") return "subtle outfit shift to smart-casual journalist: blazer or tailored jacket over top, neutral tones; keep same person and identity";
-  if (role==="блогер")    return "subtle outfit shift to trendy blogger: stylish casual, light hoodie or tee, denim or relaxed trousers; keep same person and identity";
-  if (role==="фотограф")  return "subtle outfit shift to photographer: dark utility vest or jacket, practical look; keep same person and identity";
-  return "subtle outfit update; keep identity";
-}
-
 async function generate(){
   if (!file) return;
   statusEl.innerText="Подготовка…"; resultBox.style.display="none"; download.style.display="none"; hideErr(); logsEl.style.display="none";
+
   try{
     const resized = await resizeFile(file);
-    statusEl.innerText="Сегментация (фон/голова+руки)…";
-    const { mask_bg_b64, overlay_headhands_b64 } = await buildMasks(resized.dataUrl);
+    const {w,h,dataUrl,b64} = resized;
 
-    // Шаг 1: INPAINT — меняем ТОЛЬКО фон
-    statusEl.innerText="Шаг 1/2: меняем фон…";
-    let fd = new FormData();
-    fd.append("mode","bg-inpaint");
-    fd.append("role", role);
-    fd.append("image_b64", resized.b64);
-    fd.append("mask_b64", mask_bg_b64);
+    // 1) генерим фон точного размера на сервере
+    statusEl.innerText="Шаг 1/3: генерируем фон…";
+    let fd=new FormData();
+    fd.append("mode","gen-bg");
+    fd.append("width", String(w));
+    fd.append("height", String(h));
     fd.append("prompt", bgPrompt(role));
-    fd.append("strength", String(S_BG_STRENGTH));
-    let r = await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
-    let j = JSON.parse(await r.text());
-    log({step:"inpaint", j});
-    if (!r.ok || !j.imageBase64) return showErr(j?.error||"Ошибка inpaint");
+    let r=await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
+    let j=JSON.parse(await r.text());
+    log({bg:j});
+    if (!r.ok || !j.imageBase64) return showErr(j?.error||"Не удалось создать фон");
+    let bgUrl="data:image/png;base64,"+j.imageBase64;
 
-    let currentUrl = "data:image/png;base64,"+j.imageBase64;
+    // 2) строим матты
+    statusEl.innerText="Шаг 2/3: сегментация…";
+    const { mattePerson_b64, headHands_png_b64, bodyOnly_mask_b64 } = await buildMattes(dataUrl);
 
-    // Шаг 2: WARDROBE — мягко меняем одежду (img2img)
-    statusEl.innerText="Шаг 2/2: обновляем одежду…";
-    const baseImgB64 = currentUrl.split(",")[1];
-    fd = new FormData();
-    fd.append("mode","wardrobe");
-    fd.append("role", role);
-    fd.append("image_b64", baseImgB64);
+    // 3) мягко меняем одежду (img2img по маске bodyOnly)
+    statusEl.innerText="Шаг 3/3: обновляем одежду…";
+    fd=new FormData();
+    fd.append("mode","wardrobe-mask");
+    fd.append("image_b64", b64);
+    fd.append("mask_b64", bodyOnly_mask_b64);
     fd.append("prompt", outfitPrompt(role));
-    fd.append("strength", String(S_WARDROBE));
-    r = await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
-    j = JSON.parse(await r.text());
-    log({step:"wardrobe", j});
-    if (!r.ok || !j.imageBase64) return showErr(j?.error||"Ошибка wardrobe");
+    fd.append("strength", String(CLOTH_STRENGTH));
+    r=await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
+    j=JSON.parse(await r.text());
+    log({wardrobe:j});
+    const outfitUrl = j?.imageBase64 ? "data:image/png;base64,"+j.imageBase64 : dataUrl;
 
-    // Финальная композиция: кладём сверху head+hands overlay из исходника
-    statusEl.innerText="Финальная сборка…";
-    const finalCanvas = document.createElement("canvas");
-    const gen = await loadImg("data:image/png;base64,"+j.imageBase64);
-    finalCanvas.width=gen.width; finalCanvas.height=gen.height;
-    const g = finalCanvas.getContext("2d");
-    g.drawImage(gen,0,0,gen.width,gen.height);
-    const head = await loadImg("data:image/png;base64,"+overlay_headhands_b64);
-    g.drawImage(head,0,0,gen.width,gen.height);
-    let finalUrl = finalCanvas.toDataURL("image/png");
-
-    // Лого
+    // Композиция: фон → вырезанное тело (из outfitUrl с mattePerson) → head+hands из оригинала → лого
+    const comp = document.createElement("canvas");
+    const bg = await loadImg(bgUrl);
+    const bodySrc = await loadImg(outfitUrl);
+    const matteP = await loadImg("data:image/png;base64,"+mattePerson_b64);
+    const headH  = await loadImg("data:image/png;base64,"+headHands_png_b64);
+    comp.width=bg.width; comp.height=bg.height;
+    const g=comp.getContext("2d");
+    g.drawImage(bg,0,0,bg.width,bg.height);
+    // применим матт к телу
+    const tmp=document.createElement("canvas"); tmp.width=bg.width; tmp.height=bg.height;
+    const gt=tmp.getContext("2d"); gt.drawImage(bodySrc,0,0); gt.globalCompositeOperation="destination-in"; gt.drawImage(matteP,0,0); gt.globalCompositeOperation="source-over";
+    g.drawImage(tmp,0,0);
+    // голова+кисти
+    g.drawImage(headH,0,0);
+    let finalUrl = comp.toDataURL("image/png");
     finalUrl = await composeLogoOver(finalUrl);
 
-    resultImg.src = finalUrl;
-    resultBox.style.display="block";
-    download.href = finalUrl;
-    download.style.display="inline-block";
-    statusEl.innerText="Готово ✓ · фон + одежда";
+    resultImg.src=finalUrl; resultBox.style.display="block"; download.href=finalUrl; download.style.display="inline-block";
+    statusEl.innerText="Готово ✓ · фон + одежда + защита лица/рук";
   }catch(e){
     showErr(e.message||"Неизвестная ошибка");
   }

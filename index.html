@@ -35,7 +35,6 @@
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
     pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
   </style>
-
   <!-- TF.js + BodyPix -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js"></script>
@@ -84,6 +83,7 @@ const MAX_SIZE = 1024;
 let file = null;
 let role = "журналист";
 let bodyPixModel = null;
+let lastOriginalDataUrl = null; // для оверлея
 
 const input = document.getElementById("fileInput");
 const drop = document.getElementById("dropzone");
@@ -98,7 +98,6 @@ const logsEl = document.getElementById("logs");
 function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
 function hideErr(){ err.style.display="none"; err.innerText=""; }
 function showLogs(obj){ try{ logsEl.style.display="block"; logsEl.textContent = typeof obj==="string"?obj:JSON.stringify(obj,null,2); }catch{} }
-
 function fetchWithTimeout(url, init = {}, ms = 120000){
   const ctrl = new AbortController();
   const id = setTimeout(()=>ctrl.abort(), ms);
@@ -132,12 +131,7 @@ function handleFile(f){
 async function loadBP(){
   if (bodyPixModel) return bodyPixModel;
   statusEl.innerText="Загрузка сегментации…";
-  bodyPixModel = await bodyPix.load({
-    architecture: "MobileNetV1",
-    outputStride: 16,
-    multiplier: 0.75,
-    quantBytes: 2
-  });
+  bodyPixModel = await bodyPix.load({ architecture:"MobileNetV1", outputStride:16, multiplier:0.75, quantBytes:2 });
   return bodyPixModel;
 }
 
@@ -151,7 +145,8 @@ async function resizeFile(f){
   w = Math.round(w*k); h = Math.round(h*k);
   const c=document.createElement("canvas"); c.width=w; c.height=h;
   c.getContext("2d").drawImage(img,0,0,w,h);
-  return { b64: c.toDataURL("image/jpeg",0.92).split(",")[1], width:w, height:h, dataUrl: c.toDataURL("image/jpeg",0.92) };
+  const dataUrlResized = c.toDataURL("image/jpeg",0.92);
+  return { b64: dataUrlResized.split(",")[1], width:w, height:h, dataUrl: dataUrlResized };
 }
 function loadImage(src){
   return new Promise((res,rej)=>{
@@ -159,44 +154,36 @@ function loadImage(src){
   });
 }
 
-/* расширенная маска: человек = чёрный, фон/реквизит-зоны = белый */
-async function makePersonMask(dataUrl){
+/* маска головы для оверлея: face + hair + верхняя часть торса/плеч */
+async function makeHeadMaskAndOverlay(dataUrl){
   const img = await loadImage(dataUrl);
   const model = await loadBP();
 
-  const seg = await model.segmentPerson(img, {
-    internalResolution: 'medium',
-    segmentationThreshold: 0.7
-  });
-
+  // сегментация по частям
+  const parts = await model.segmentPersonParts(img, { internalResolution:'medium', segmentationThreshold:0.7 });
   const w = img.width, h = img.height;
+  const mask = new Uint8ClampedArray(w*h); // 0=прозрачн (не брать), 255=брать
 
-  // базовая маска: 0 = человек (чёрный), 255 = фон (белый)
-  const base = new Uint8ClampedArray(w*h);
-  const src = seg.data;
-  for (let i=0;i<w*h;i++) base[i] = (src[i] === 1) ? 0 : 255;
+  // набор частей: лицо (0), волосы (1) — в BodyPix могут отличаться, возьмём все head-пиксели
+  const headPartIds = new Set([0,1]); // face, hair
+  // добавим верх торса/плеч: partId 12..15 — левая/правая рука/плечо (зависит от модели)
+  for (let i=0;i<parts.data.length;i++){
+    const pid = parts.data[i];
+    if (headPartIds.has(pid)) mask[i] = 255;
+  }
 
-  // расширяем БЕЛОЕ на 6px (чтобы было место для реквизита), но НЕ заходим на чёрное
-  const dilate = (field, rad) => {
+  // добавим «воротник/верх плеч» вокруг головы: дилатация на 6–8 px
+  const dilate = (field, w,h,rad) => {
     const out = new Uint8ClampedArray(field);
     const r = rad|0;
     for (let y=0;y<h;y++){
       for (let x=0;x<w;x++){
-        if (field[y*w+x] === 255) continue;
-        // если вокруг есть белое — оставляем чёрным (человека не трогаем)
-      }
-    }
-    // простая дилатация белого: если пиксель белый — размываем в окрестность
-    const tmp = new Uint8ClampedArray(field);
-    for (let y=0;y<h;y++){
-      for (let x=0;x<w;x++){
-        if (field[y*w+x] === 255){
+        if (field[y*w+x]===255){
           for (let dy=-r; dy<=r; dy++){
             for (let dx=-r; dx<=r; dx++){
-              const xx = x+dx, yy = y+dy;
+              const xx=x+dx, yy=y+dy;
               if (xx<0||yy<0||xx>=w||yy>=h) continue;
-              // не заливаем человека: чёрное остаётся чёрным
-              if (tmp[yy*w+xx] !== 0) out[yy*w+xx] = 255;
+              out[yy*w+xx] = 255;
             }
           }
         }
@@ -204,33 +191,35 @@ async function makePersonMask(dataUrl){
     }
     return out;
   };
-  let field = dilate(base, 6);
+  const field = dilate(mask, w,h,8);
 
-  // добавим «подиум» перед человеком (полоса снизу) — помогает нарисовать стойки микрофонов/стол
-  const padH = Math.max(8, Math.round(h*0.08));
-  for (let y=h-padH; y<h; y++){
-    for (let x=0; x<w; x++){
-      if (field[y*w+x] !== 0) field[y*w+x] = 255;
-    }
-  }
-
-  // собираем в Canvas
+  // собрать прозрачный PNG с мягким краем
   const c = document.createElement("canvas"); c.width=w; c.height=h;
   const g = c.getContext("2d");
-  const imgData = g.createImageData(w,h);
+  const base = await loadImage(dataUrl);
+  g.drawImage(base,0,0,w,h);
+
+  // делаем мягкую маску
+  const m = document.createElement("canvas"); m.width=w; m.height=h;
+  const gm = m.getContext("2d");
+  const imgData = gm.createImageData(w,h);
   for (let i=0;i<w*h;i++){
     const v = field[i];
-    imgData.data[i*4+0]=v; imgData.data[i*4+1]=v; imgData.data[i*4+2]=v; imgData.data[i*4+3]=255;
+    imgData.data[i*4+0]=0; imgData.data[i*4+1]=0; imgData.data[i*4+2]=0; imgData.data[i*4+3]=v;
   }
-  g.putImageData(imgData,0,0);
-
-  // сгладим край
+  gm.putImageData(imgData,0,0);
   const blur = document.createElement("canvas"); blur.width=w; blur.height=h;
-  const gb = blur.getContext("2d");
-  gb.filter = "blur(4px)";
-  gb.drawImage(c,0,0);
+  const gb = blur.getContext("2d"); gb.filter="blur(6px)"; gb.drawImage(m,0,0);
 
-  return blur.toDataURL("image/png").split(",")[1];
+  // применяем как маску (destination-in)
+  const overlay = document.createElement("canvas"); overlay.width=w; overlay.height=h;
+  const go = overlay.getContext("2d");
+  go.drawImage(base,0,0,w,h);
+  go.globalCompositeOperation="destination-in";
+  go.drawImage(blur,0,0,w,h);
+  go.globalCompositeOperation="source-over";
+
+  return overlay.toDataURL("image/png").split(",")[1];
 }
 
 /* логотип-оверлей */
@@ -261,58 +250,71 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
-/* промпты ролей — с явными элементами сцены */
+/* промпты ролей — гендер-нейтральные */
 function rolePrompt(role){
   if (role==="журналист")
-    return "replace ONLY the masked BACKGROUND with a TV news studio: video walls with headlines, newsroom monitors, glass anchor desk in front with several microphones on stands slightly out of focus; cinematic editorial lighting; photorealistic; no text overlay";
+    return "subtle wardrobe shift to smart-casual newsroom style; keep the same person and identity; photorealistic editorial look; no text, no watermark";
   if (role==="блогер")
-    return "replace ONLY the masked BACKGROUND with a creator studio: ring light, camera on tripod, softbox lights, shelves with décor and a neon accent; clean bright look; photorealistic; no text overlay";
+    return "subtle wardrobe shift to trendy creator style; keep the same person and identity; photorealistic clean light; no text, no watermark";
   if (role==="фотограф")
-    return "replace ONLY the masked BACKGROUND with a professional photo studio: tripods, C-stands, softboxes, backdrop rolls, camera gear; moody studio lighting; photorealistic; no text overlay";
-  return "replace ONLY the masked BACKGROUND with a neutral professional studio; photorealistic; no text overlay";
+    return "subtle wardrobe shift to practical photographer style; keep the same person and identity; photorealistic studio vibe; no text, no watermark";
+  return "subtle wardrobe shift, keep identity unchanged; photorealistic; no text";
 }
 
 async function generateImage(){
   if (!file) return;
-  statusEl.innerText="Обработка: сегментация человека…";
+  statusEl.innerText="Подготовка…";
   resultBox.style.display="none"; download.style.display="none"; hideErr(); logsEl.style.display="none";
 
   try{
     const resized = await resizeFile(file);
+    lastOriginalDataUrl = resized.dataUrl;
 
-    const mask_b64 = await makePersonMask(resized.dataUrl);
-    statusEl.innerText="Генерация фона…";
+    // строим оверлей головы
+    statusEl.innerText="Сохраняем лицо…";
+    const headOverlayB64 = await makeHeadMaskAndOverlay(resized.dataUrl);
 
+    // отправляем img2img
+    statusEl.innerText="Генерация образа…";
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
-    fd.append("mask_b64", mask_b64);
     fd.append("prompt", rolePrompt(role));
 
     const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
     const t = await r.text();
-    let j = null;
-    try { j = JSON.parse(t); } catch { showLogs(t); return showErr("Некорректный ответ сервера (ожидался JSON)."); }
-
+    let j = null; try { j = JSON.parse(t); } catch { showLogs(t); return showErr("Некорректный ответ сервера (ожидался JSON)."); }
     showLogs(j);
 
-    if (!r.ok) {
-      return showErr(j?.error ? `AI ошибка: ${j.error}${j.details?` — ${j.details}`:''}` : 'AI не вернул изображение.');
-    }
-    if (!j.imageBase64) return showErr('AI не прислал изображение (пусто).');
+    if (!r.ok || !j.imageBase64) return showErr(j?.error ? `AI ошибка: ${j.error}${j.details?` — ${j.details}`:''}` : 'AI не прислал изображение.');
 
-    let imgUrl = "data:image/png;base64," + j.imageBase64;
+    // Композиция: сгенерённое -> поверх head overlay
+    const genUrl = "data:image/png;base64," + j.imageBase64;
+    const composed = await composeHeadOverlay(genUrl, "data:image/png;base64," + headOverlayB64);
 
-    imgUrl = await composeLogoOver(imgUrl);
-    resultImg.src = imgUrl;
+    // Логотип сверху
+    const finalUrl = await composeLogoOver(composed);
+
+    resultImg.src = finalUrl;
     resultBox.style.display="block";
-    download.href = imgUrl;
+    download.href = finalUrl;
     download.style.display="inline-block";
-    statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed || 'Workers AI (inpaint)'}`;
+    statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed || 'Workers AI'}`;
   }catch(e){
     if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
     else showErr(e.message || "Неизвестная ошибка сети");
   }
+}
+
+/* склеиваем head overlay + сгенерённый кадр */
+async function composeHeadOverlay(genUrl, headOverlayUrl){
+  const base = await loadImage(genUrl);
+  const head = await loadImage(headOverlayUrl);
+  const c=document.createElement("canvas"); c.width=base.width; c.height=base.height;
+  const g=c.getContext("2d");
+  g.drawImage(base,0,0,base.width,base.height);
+  g.drawImage(head,0,0,base.width,base.height); // head PNG уже с прозрачностью
+  return c.toDataURL("image/png");
 }
 </script>
 </body>

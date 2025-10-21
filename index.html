@@ -35,6 +35,10 @@
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
     pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
   </style>
+
+  <!-- TF.js + BodyPix (легковесная сегментация человека прямо в браузере) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -79,6 +83,7 @@ const MAX_SIZE = 1024;
 
 let file = null;
 let role = "журналист";
+let bodyPixModel = null;
 
 const input = document.getElementById("fileInput");
 const drop = document.getElementById("dropzone");
@@ -124,6 +129,18 @@ function handleFile(f){
   generateImage();
 }
 
+async function loadBP(){
+  if (bodyPixModel) return bodyPixModel;
+  statusEl.innerText="Загрузка сегментации…";
+  bodyPixModel = await bodyPix.load({
+    architecture: "MobileNetV1",
+    outputStride: 16,
+    multiplier: 0.75,
+    quantBytes: 2
+  });
+  return bodyPixModel;
+}
+
 async function resizeFile(f){
   const dataUrl = await new Promise((res,rej)=>{
     const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f);
@@ -141,14 +158,44 @@ function loadImage(src){
     const img=new Image(); img.crossOrigin="anonymous"; img.onload=()=>res(img); img.onerror=rej; img.src=src;
   });
 }
-async function isMostlyBlack(dataUrl){
+
+/* строим маску человека: белый = фон (меняем), чёрный = человек (сохраняем) */
+async function makePersonMask(dataUrl){
   const img = await loadImage(dataUrl);
-  const c = document.createElement("canvas"); c.width=img.width; c.height=img.height;
-  const g = c.getContext("2d"); g.drawImage(img,0,0);
-  const {data} = g.getImageData(0,0,c.width,c.height);
-  let sum=0, N=data.length/4;
-  for (let i=0;i<data.length;i+=4) sum += (data[i]+data[i+1]+data[i+2])/3;
-  return (sum/N) < 8;
+  const model = await loadBP();
+
+  // сегментация на пиксельной сетке
+  const seg = await model.segmentPerson(img, {
+    internalResolution: 'medium',
+    segmentationThreshold: 0.7
+  });
+
+  const w = img.width, h = img.height;
+  const c = document.createElement("canvas"); c.width=w; c.height=h;
+  const g = c.getContext("2d");
+  const imgData = g.createImageData(w,h);
+  const {data:mask} = seg;
+
+  // BodyPix даёт массив 0/1 (или индекс класса человека). Нам нужна маска для inpainting:
+  // белый (255) = МЕНЯЕМ (фон), чёрный (0) = НЕ трогаем (человек).
+  for (let i=0;i<w*h;i++){
+    const isPerson = mask[i] === 1;
+    const v = isPerson ? 0 : 255;
+    imgData.data[i*4 + 0] = v;
+    imgData.data[i*4 + 1] = v;
+    imgData.data[i*4 + 2] = v;
+    imgData.data[i*4 + 3] = 255;
+  }
+  g.putImageData(imgData, 0, 0);
+
+  // небольшое размывание границ — сглаживает стык
+  const blur = document.createElement("canvas");
+  blur.width = w; blur.height = h;
+  const gb = blur.getContext("2d");
+  gb.filter = "blur(3px)"; // мягкая кромка
+  gb.drawImage(c,0,0);
+
+  return blur.toDataURL("image/png").split(",")[1];
 }
 
 /* логотип-оверлей */
@@ -179,28 +226,33 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
-/* точные промпты под роли — «меняем фон и одежду, лицо/идентичность не трогаем» */
+/* точные промпты под роли (меняем ТОЛЬКО фон; лицо/идентичность не трогаем) */
 function rolePrompt(role){
   if (role==="журналист")
-    return "change ONLY the background to a modern newsroom with LED screens, microphones and newsroom lights; keep the person’s exact face, pose, expression and body unchanged; subtly adapt clothes to smart-casual journalist style; photorealistic, editorial portrait, no text, no watermark, same identity";
+    return "fill masked BACKGROUND as a modern newsroom with LED screens and newsroom lights; keep the person exactly the same; photorealistic, editorial portrait, no text";
   if (role==="блогер")
-    return "change ONLY the background to a bright blogger studio with ring light and camera setup; keep the same face and identity, same lighting on the person; subtly adapt outfit to trendy casual blogger style; photorealistic, clean modern light, no text, no watermark, same identity";
+    return "fill masked BACKGROUND as a bright blogger studio with ring light and camera setup; keep the person exactly the same; photorealistic, clean modern light, no text";
   if (role==="фотограф")
-    return "change ONLY the background to a professional photo studio with tripods, lights and camera gear; keep the same person, face and body intact; optionally adjust outfit to photographer look (dark neutral clothes); photorealistic studio lighting, no text or watermark, same identity";
-  return "neutral professional portrait background; keep identity unchanged; photorealistic, no text, same identity";
+    return "fill masked BACKGROUND as a professional photo studio with tripods, lights and camera gear; keep the person exactly the same; photorealistic studio lighting, no text";
+  return "fill masked BACKGROUND with a neutral professional studio; keep the person exactly the same; photorealistic, no text";
 }
 
 async function generateImage(){
   if (!file) return;
-  statusEl.innerText="Обработка изображения…";
+  statusEl.innerText="Обработка: сегментация человека…";
   resultBox.style.display="none"; download.style.display="none"; hideErr(); logsEl.style.display="none";
 
   try{
     const resized = await resizeFile(file);
 
+    // строим маску (человек = чёрный, фон = белый)
+    const mask_b64 = await makePersonMask(resized.dataUrl);
+    statusEl.innerText="Генерация фона…";
+
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
+    fd.append("mask_b64", mask_b64);
     fd.append("prompt", rolePrompt(role));
 
     const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
@@ -220,16 +272,12 @@ async function generateImage(){
 
     let imgUrl = "data:image/png;base64," + j.imageBase64;
 
-    if (await isMostlyBlack(imgUrl)) {
-      return showErr('AI прислал некорректный кадр (почти чёрный). Повторите попытку с другим фото.');
-    }
-
     imgUrl = await composeLogoOver(imgUrl);
     resultImg.src = imgUrl;
     resultBox.style.display="block";
     download.href = imgUrl;
     download.style.display="inline-block";
-    statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed || 'Workers AI'}`;
+    statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed || 'Workers AI (inpaint)'}`;
   }catch(e){
     if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
     else showErr(e.message || "Неизвестная ошибка сети");

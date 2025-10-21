@@ -179,11 +179,15 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
+/* точные промпты под роли — «меняем фон и одежду, лицо/идентичность не трогаем» */
 function rolePrompt(role){
-  if (role==="журналист") return "a modern newsroom with LED screens and soft bokeh; subtle wardrobe as journalist (blazer/shirt), neutral colors";
-  if (role==="блогер")    return "a clean creator studio with softbox lights; subtle wardrobe as blogger (trendy street-casual)";
-  if (role==="фотограф")  return "a professional photo studio with tripods and softboxes; subtle wardrobe as photographer (utility vest/jacket)";
-  return "a neutral studio background; neutral outfit";
+  if (role==="журналист")
+    return "change ONLY the background to a modern newsroom with LED screens, microphones and newsroom lights; keep the person’s exact face, pose, expression and body unchanged; subtly adapt clothes to smart-casual journalist style; photorealistic, editorial portrait, no text, no watermark, same identity";
+  if (role==="блогер")
+    return "change ONLY the background to a bright blogger studio with ring light and camera setup; keep the same face and identity, same lighting on the person; subtly adapt outfit to trendy casual blogger style; photorealistic, clean modern light, no text, no watermark, same identity";
+  if (role==="фотограф")
+    return "change ONLY the background to a professional photo studio with tripods, lights and camera gear; keep the same person, face and body intact; optionally adjust outfit to photographer look (dark neutral clothes); photorealistic studio lighting, no text or watermark, same identity";
+  return "neutral professional portrait background; keep identity unchanged; photorealistic, no text, same identity";
 }
 
 async function generateImage(){

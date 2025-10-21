@@ -95,9 +95,9 @@ const logsEl = document.getElementById("logs");
 
 function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
 function hideErr(){ err.style.display="none"; err.innerText=""; }
-function showLogs(obj){ try{ logsEl.style.display="block"; logsEl.textContent = JSON.stringify(obj,null,2); }catch{} }
+function showLogs(obj){ try{ logsEl.style.display="block"; logsEl.textContent = typeof obj==="string"?obj:JSON.stringify(obj,null,2); }catch{} }
 
-function fetchWithTimeout(url, init = {}, ms = 90000){
+function fetchWithTimeout(url, init = {}, ms = 120000){
   const ctrl = new AbortController();
   const id = setTimeout(()=>ctrl.abort(), ms);
   return fetch(url, { ...init, signal: ctrl.signal }).finally(()=>clearTimeout(id));
@@ -137,7 +137,7 @@ async function resizeFile(f){
   w = Math.round(w*k); h = Math.round(h*k);
   const c=document.createElement("canvas"); c.width=w; c.height=h;
   c.getContext("2d").drawImage(img,0,0,w,h);
-  return { b64: c.toDataURL("image/jpeg",0.9).split(",")[1], width:w, height:h, dataUrl: c.toDataURL("image/jpeg",0.9) };
+  return { b64: c.toDataURL("image/jpeg",0.92).split(",")[1], width:w, height:h, dataUrl: c.toDataURL("image/jpeg",0.92) };
 }
 function loadImage(src){
   return new Promise((res,rej)=>{
@@ -182,13 +182,6 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
-function pickAspect(w,h){
-  const r = w/h;
-  if (r > 1.25) return "ASPECT_16_9";
-  if (r < 0.85) return "ASPECT_3_4";
-  return "ASPECT_1_1";
-}
-
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
@@ -199,7 +192,7 @@ async function generateImage(){
 
     try{
       const dbg = await fetchWithTimeout(`${API_BASE}/api/debug`, { method:"GET" }, 6000).then(r=>r.json());
-      statusEl.innerText = `Проверка провайдеров: GEMINI=${dbg.hasKey?'OK':'NO'}, CF_AI=${dbg.hasAI?'OK':'NO'}\nОбработка изображения…`;
+      statusEl.innerText = `Проверка провайдеров: GEMINI=${dbg.hasKey?'OK':'NO'}\nОбработка изображения…`;
     }catch{}
 
     const fd = new FormData();
@@ -210,22 +203,26 @@ async function generateImage(){
     fd.append("force_upscale", "1024");
     fd.append("use_exp_model", "1");
 
-    const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 90000);
+    const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
     const t = await r.text();
-
     let j = null;
-    try { j = JSON.parse(t); } catch { console.error("Non-JSON reply:", t); showErr("Некорректный ответ сервера (ожидался JSON)."); return; }
+    try { j = JSON.parse(t); } catch { showLogs(t); return showErr("Некорректный ответ сервера (ожидался JSON)."); }
 
     showLogs(j);
 
-    let imgUrl;
-    if (j.imageBase64) {
-      statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed}`;
-      imgUrl = "data:image/png;base64,"+j.imageBase64;
-      if (await isMostlyBlack(imgUrl)) imgUrl = resized.dataUrl;
-    } else {
-      statusEl.innerText = `Переход в passthrough (показан исходник). ${j.details||''}`;
-      imgUrl = resized.dataUrl;
+    if (!r.ok) {
+      return showErr(j?.error ? `AI ошибка: ${j.error}${j.details?` — ${j.details}`:''}` : 'AI не вернул изображение.');
+    }
+
+    if (!j.imageBase64) {
+      return showErr('AI не прислал изображение (пустой ответ).');
+    }
+
+    let imgUrl = "data:image/png;base64," + j.imageBase64;
+
+    // редкий случай чёрного фрейма — подстрахуемся
+    if (await isMostlyBlack(imgUrl)) {
+      return showErr('AI прислал некорректный кадр (почти чёрный). Повторите попытку с другим фото.');
     }
 
     imgUrl = await composeLogoOver(imgUrl);
@@ -233,6 +230,7 @@ async function generateImage(){
     resultBox.style.display="block";
     download.href = imgUrl;
     download.style.display="inline-block";
+    statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed || 'AI'}`;
   }catch(e){
     if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
     else showErr(e.message || "Неизвестная ошибка сети");

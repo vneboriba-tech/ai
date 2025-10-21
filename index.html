@@ -36,7 +36,7 @@
     .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
     .btn:hover { background:#059669; }
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
-    pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:220px; font-size:12px; display:none; }
+    pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
   </style>
 </head>
 <body>
@@ -209,7 +209,7 @@ async function generateImage(){
     fd.append("height", String(resized.height));
     fd.append("force_upscale", "1024");
     fd.append("use_exp_model", "1");
-    // fd.append("force_sd", "1"); // ← раскомментируй для проверки SD-ветки напрямую
+    fd.append("force_sd", "1"); // включено: тестим SD-ветку напрямую
 
     const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 90000);
     const t = await r.text();

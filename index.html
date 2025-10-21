@@ -8,14 +8,12 @@
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
     * { box-sizing:border-box; }
-    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
-      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;}
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;}
     body { display:flex; flex-direction:column; align-items:center; min-height:100vh; }
     header { text-align:center; margin-top:24px; margin-bottom:16px; }
     h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
     .container { width:100%; max-width:960px; padding:20px; }
-    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px;
-      background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
+    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
     .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
     .uploader img.logo { width:72px; height:72px; margin-bottom:12px; }
     .headline { font-weight:700; font-size:18px; }
@@ -25,8 +23,7 @@
     .roles-title { text-align:center; font-weight:700; font-size:18px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
     @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
-    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700;
-      cursor:pointer; background:#fff; transition:.15s; }
+    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
     .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
     .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
@@ -182,6 +179,13 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
+function rolePrompt(role){
+  if (role==="журналист") return "a modern newsroom with LED screens and soft bokeh; subtle wardrobe as journalist (blazer/shirt), neutral colors";
+  if (role==="блогер")    return "a clean creator studio with softbox lights; subtle wardrobe as blogger (trendy street-casual)";
+  if (role==="фотограф")  return "a professional photo studio with tripods and softboxes; subtle wardrobe as photographer (utility vest/jacket)";
+  return "a neutral studio background; neutral outfit";
+}
+
 async function generateImage(){
   if (!file) return;
   statusEl.innerText="Обработка изображения…";
@@ -190,18 +194,10 @@ async function generateImage(){
   try{
     const resized = await resizeFile(file);
 
-    try{
-      const dbg = await fetchWithTimeout(`${API_BASE}/api/debug`, { method:"GET" }, 6000).then(r=>r.json());
-      statusEl.innerText = `Проверка провайдеров: GEMINI=${dbg.hasKey?'OK':'NO'}\nОбработка изображения…`;
-    }catch{}
-
     const fd = new FormData();
     fd.append("role", role);
     fd.append("image_b64", resized.b64);
-    fd.append("width", String(resized.width));
-    fd.append("height", String(resized.height));
-    fd.append("force_upscale", "1024");
-    fd.append("use_exp_model", "1");
+    fd.append("prompt", rolePrompt(role));
 
     const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
     const t = await r.text();
@@ -220,7 +216,6 @@ async function generateImage(){
 
     let imgUrl = "data:image/png;base64," + j.imageBase64;
 
-    // редкий случай чёрного фрейма — подстрахуемся
     if (await isMostlyBlack(imgUrl)) {
       return showErr('AI прислал некорректный кадр (почти чёрный). Повторите попытку с другим фото.');
     }
@@ -230,7 +225,7 @@ async function generateImage(){
     resultBox.style.display="block";
     download.href = imgUrl;
     download.style.display="inline-block";
-    statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed || 'AI'}`;
+    statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed || 'Workers AI'}`;
   }catch(e){
     if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
     else showErr(e.message || "Неизвестная ошибка сети");

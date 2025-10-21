@@ -1,134 +1,319 @@
-// Cloudflare Worker — Workers AI Inpainting, r7
-// Модель: @cf/runwayml/stable-diffusion-v1-5-inpainting
-// Маска: БЕЛОЕ = менять (фон/реквизит), ЧЁРНОЕ = сохранить (человек).
-// Усилен prompt для роли; поднята сила до 0.65 (фон только по маске).
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Почувствуй себя журналистом</title>
+  <meta name="description" content="Журналист / Блогер / Фотограф — реалистичная смена окружения с сохранением лица" />
+  <style>
+    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
+    * { box-sizing:border-box; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;}
+    body { display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+    header { text-align:center; margin-top:24px; margin-bottom:16px; }
+    h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
+    .container { width:100%; max-width:960px; padding:20px; }
+    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
+    .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
+    .uploader img.logo { width:72px; height:72px; margin-bottom:12px; }
+    .headline { font-weight:700; font-size:18px; }
+    .sub { color:var(--muted); font-size:14px; margin-top:6px; }
+    .picked { margin-top:10px; font-size:14px; }
+    .roles { margin-top:24px; }
+    .roles-title { text-align:center; font-weight:700; font-size:18px; }
+    .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
+    @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
+    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
+    .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
+    .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
+    .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
+    .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
+    .result { margin-top:24px; text-align:center; }
+    .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
+    .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
+    .btn:hover { background:#059669; }
+    footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
+    pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
+  </style>
 
-const VERSION = "workers-ai-inpaint-2025-10-21r7";
+  <!-- TF.js + BodyPix -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header><h1>Почувствуй себя журналистом</h1></header>
 
-function cors(req){return{
-  "Access-Control-Allow-Origin": req.headers.get("Origin") || "*",
-  "Vary": "Origin",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": req.headers.get("Access-Control-Request-Headers") || "Content-Type",
-  "Access-Control-Max-Age": "86400",
-};}
-function json(req, body, status=200){
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...cors(req) }
+    <div class="uploader" id="dropzone">
+      <img src="logo.png" alt="Логотип" class="logo" onerror="this.style.display='none'">
+      <div class="headline">Загрузите фото</div>
+      <div class="sub">JPG, PNG, WEBP до 12 МБ</div>
+      <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" style="display:none" />
+      <div id="picked" class="picked"></div>
+    </div>
+
+    <div class="roles">
+      <div class="roles-title">Выберите роль</div>
+      <div class="roles-grid">
+        <button class="role active" data-role="журналист">Журналист</button>
+        <button class="role" data-role="блогер">Блогер</button>
+        <button class="role" data-role="фотограф">Фотограф</button>
+      </div>
+    </div>
+
+    <div id="status" class="status">Готово к работе</div>
+    <div id="error" class="err"></div>
+
+    <div id="resultBox" class="result" style="display:none;">
+      <img id="resultImg" alt="Результат">
+      <div style="margin-top:12px;">
+        <a id="download" class="btn" download="result.png" style="display:none;">Скачать PNG</a>
+      </div>
+    </div>
+
+    <pre id="logs"></pre>
+  </div>
+
+  <footer>© 2025 факультет журналистики МГУ</footer>
+
+<script>
+const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
+const MAX_MB = 12;
+const MAX_SIZE = 1024;
+
+let file = null;
+let role = "журналист";
+let bodyPixModel = null;
+
+const input = document.getElementById("fileInput");
+const drop = document.getElementById("dropzone");
+const picked = document.getElementById("picked");
+const statusEl = document.getElementById("status");
+const err = document.getElementById("error");
+const resultBox = document.getElementById("resultBox");
+const resultImg = document.getElementById("resultImg");
+const download = document.getElementById("download");
+const logsEl = document.getElementById("logs");
+
+function showErr(m){ err.style.display="block"; err.innerText=m; statusEl.innerText="Ошибка"; }
+function hideErr(){ err.style.display="none"; err.innerText=""; }
+function showLogs(obj){ try{ logsEl.style.display="block"; logsEl.textContent = typeof obj==="string"?obj:JSON.stringify(obj,null,2); }catch{} }
+
+function fetchWithTimeout(url, init = {}, ms = 120000){
+  const ctrl = new AbortController();
+  const id = setTimeout(()=>ctrl.abort(), ms);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(()=>clearTimeout(id));
+}
+
+drop.addEventListener("click", () => input.click());
+drop.addEventListener("dragover", e => e.preventDefault());
+drop.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); });
+input.addEventListener("change", e => handleFile(e.target.files?.[0]));
+
+document.querySelectorAll(".role").forEach(b=>{
+  b.addEventListener("click",()=>{
+    document.querySelectorAll(".role").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    role=b.dataset.role;
+    if (file) generateImage();
+  });
+});
+
+function handleFile(f){
+  if (!f) return;
+  if (!f.type.startsWith("image/")) return showErr("Нужен файл изображения.");
+  if (f.size > MAX_MB*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
+  hideErr();
+  file = f;
+  picked.innerText = `Вы выбрали: ${f.name}`;
+  generateImage();
+}
+
+async function loadBP(){
+  if (bodyPixModel) return bodyPixModel;
+  statusEl.innerText="Загрузка сегментации…";
+  bodyPixModel = await bodyPix.load({
+    architecture: "MobileNetV1",
+    outputStride: 16,
+    multiplier: 0.75,
+    quantBytes: 2
+  });
+  return bodyPixModel;
+}
+
+async function resizeFile(f){
+  const dataUrl = await new Promise((res,rej)=>{
+    const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f);
+  });
+  const img = await loadImage(dataUrl);
+  let w = img.width, h = img.height;
+  const k = Math.max(w,h)>MAX_SIZE ? MAX_SIZE/Math.max(w,h) : 1;
+  w = Math.round(w*k); h = Math.round(h*k);
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  c.getContext("2d").drawImage(img,0,0,w,h);
+  return { b64: c.toDataURL("image/jpeg",0.92).split(",")[1], width:w, height:h, dataUrl: c.toDataURL("image/jpeg",0.92) };
+}
+function loadImage(src){
+  return new Promise((res,rej)=>{
+    const img=new Image(); img.crossOrigin="anonymous"; img.onload=()=>res(img); img.onerror=rej; img.src=src;
   });
 }
-const stripDataUrl = s => String(s||"").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-async function b64ToUint8(b64){
-  const bin = atob(b64);
-  const buf = new Uint8Array(bin.length);
-  for (let i=0;i<bin.length;i++) buf[i] = bin.charCodeAt(i);
-  return buf;
-}
-async function uint8ToB64(u8){
-  let bin = "";
-  for (let i=0;i<u8.length;i++) bin += String.fromCharCode(u8[i]);
-  return btoa(bin);
-}
+/* расширенная маска: человек = чёрный, фон/реквизит-зоны = белый */
+async function makePersonMask(dataUrl){
+  const img = await loadImage(dataUrl);
+  const model = await loadBP();
 
-function normRole(r){ r=(r||"").toLowerCase();
-  if (r.includes("блог")) return "блогер";
-  if (r.includes("фот")) return "фотограф";
-  return "журналист";
-}
-function rolePrompt(role){
-  if (role==="журналист")
-    return "TV news studio background with video walls showing headlines, newsroom monitors, glass anchor desk in the foreground and several microphones on stands slightly out of focus; cinematic editorial lighting; photorealistic; no text overlay";
-  if (role==="блогер")
-    return "creator studio background with ring light, camera on tripod, softbox lights, décor shelves and a subtle neon sign; clean bright look; photorealistic; no text overlay";
-  if (role==="фотограф")
-    return "professional photo studio background with backdrops, C-stands, softboxes and camera gear; moody studio light; photorealistic; no text overlay";
-  return "neutral professional studio background; photorealistic; no text overlay";
-}
+  const seg = await model.segmentPerson(img, {
+    internalResolution: 'medium',
+    segmentationThreshold: 0.7
+  });
 
-export default {
-  async fetch(req, env){
-    if (req.method === "OPTIONS")
-      return new Response(null, { status:204, headers: cors(req) });
+  const w = img.width, h = img.height;
 
-    const url  = new URL(req.url);
-    const path = (url.pathname||"/").replace(/\/{2,}/g,"/").replace(/\/+$/,"") || "/";
+  // базовая маска: 0 = человек (чёрный), 255 = фон (белый)
+  const base = new Uint8ClampedArray(w*h);
+  const src = seg.data;
+  for (let i=0;i<w*h;i++) base[i] = (src[i] === 1) ? 0 : 255;
 
-    if (req.method==="GET" && path==="/api/debug"){
-      return json(req, {
-        ok: true,
-        version: VERSION,
-        workersAI: !!env.AI,
-        model: "@cf/runwayml/stable-diffusion-v1-5-inpainting",
-        expected: "POST /api/safe-edit"
-      });
-    }
-
-    if (req.method==="GET" && path==="/"){
-      return json(req, { ok:true, version:VERSION, expected:"POST /api/safe-edit" });
-    }
-
-    if (req.method==="POST" && path==="/api/safe-edit"){
-      if (!env.AI) return json(req, { error:"no-workers-ai-binding" }, 500);
-
-      try{
-        const form = await req.formData();
-        const roleIn   = String(form.get("role") || "журналист");
-        const role     = normRole(roleIn);
-        const promptIn = String(form.get("prompt") || "") || rolePrompt(role);
-
-        const imgB64   = form.get("image_b64") || form.get("image");
-        const maskB64  = form.get("mask_b64")  || form.get("mask");
-        if (!imgB64)  return json(req, { error:"no-image" }, 400);
-        if (!maskB64) return json(req, { error:"no-mask" }, 400);
-
-        const guidanceIn = Number(form.get("guidance") ?? 8.0);
-        const stepsIn    = Number(form.get("num_steps") ?? 20);
-        const strengthIn = Number(form.get("strength") ?? 0.65); // фон выраженнее
-
-        const guidance = clamp(isFinite(guidanceIn)?guidanceIn:8.0, 1.0, 12.0);
-        const num_steps = clamp(isFinite(stepsIn)?stepsIn:20, 1, 20);
-        const strength  = clamp(isFinite(strengthIn)?strengthIn:0.65, 0.3, 0.85);
-
-        const imageBytes = await b64ToUint8(stripDataUrl(String(imgB64)));
-        const maskBytes  = await b64ToUint8(stripDataUrl(String(maskB64)));
-
-        const model = "@cf/runwayml/stable-diffusion-v1-5-inpainting";
-        const payload = {
-          prompt: promptIn,
-          negative_prompt: "text, watermark, logo, artifacts, glitch, cartoon",
-          image: [...imageBytes],
-          mask:  [...maskBytes], // WHITE=change (background/props), BLACK=keep (person)
-          guidance,
-          num_steps,
-          strength
-        };
-
-        let out;
-        try { out = await env.AI.run(model, payload); }
-        catch (e) { return json(req, { error:"workers-ai-failed", details:String(e?.message||e), used:{ guidance, num_steps, strength, model } }, 502); }
-
-        try {
-          const resp = new Response(out, { headers: { "content-type": "image/png" }});
-          const buf = await resp.arrayBuffer();
-          const b64 = await uint8ToB64(new Uint8Array(buf));
-          return json(req, {
-            imageBase64: b64,
-            modelUsed: model,
-            stage: "workers-ai-inpaint",
-            used: { guidance, num_steps, strength }
-          }, 200);
-        } catch (e) {
-          return json(req, { error:"unexpected-workers-ai-output", details:String(e?.message||e) }, 502);
-        }
-
-      }catch(e){
-        return json(req, { error:"safe-edit-failed", details:String(e?.message||e) }, 502);
+  // расширяем БЕЛОЕ на 6px (чтобы было место для реквизита), но НЕ заходим на чёрное
+  const dilate = (field, rad) => {
+    const out = new Uint8ClampedArray(field);
+    const r = rad|0;
+    for (let y=0;y<h;y++){
+      for (let x=0;x<w;x++){
+        if (field[y*w+x] === 255) continue;
+        // если вокруг есть белое — оставляем чёрным (человека не трогаем)
       }
     }
+    // простая дилатация белого: если пиксель белый — размываем в окрестность
+    const tmp = new Uint8ClampedArray(field);
+    for (let y=0;y<h;y++){
+      for (let x=0;x<w;x++){
+        if (field[y*w+x] === 255){
+          for (let dy=-r; dy<=r; dy++){
+            for (let dx=-r; dx<=r; dx++){
+              const xx = x+dx, yy = y+dy;
+              if (xx<0||yy<0||xx>=w||yy>=h) continue;
+              // не заливаем человека: чёрное остаётся чёрным
+              if (tmp[yy*w+xx] !== 0) out[yy*w+xx] = 255;
+            }
+          }
+        }
+      }
+    }
+    return out;
+  };
+  let field = dilate(base, 6);
 
-    return json(req, { error:"not-found", path, method:req.method }, 404);
+  // добавим «подиум» перед человеком (полоса снизу) — помогает нарисовать стойки микрофонов/стол
+  const padH = Math.max(8, Math.round(h*0.08));
+  for (let y=h-padH; y<h; y++){
+    for (let x=0; x<w; x++){
+      if (field[y*w+x] !== 0) field[y*w+x] = 255;
+    }
   }
-};
+
+  // собираем в Canvas
+  const c = document.createElement("canvas"); c.width=w; c.height=h;
+  const g = c.getContext("2d");
+  const imgData = g.createImageData(w,h);
+  for (let i=0;i<w*h;i++){
+    const v = field[i];
+    imgData.data[i*4+0]=v; imgData.data[i*4+1]=v; imgData.data[i*4+2]=v; imgData.data[i*4+3]=255;
+  }
+  g.putImageData(imgData,0,0);
+
+  // сгладим край
+  const blur = document.createElement("canvas"); blur.width=w; blur.height=h;
+  const gb = blur.getContext("2d");
+  gb.filter = "blur(4px)";
+  gb.drawImage(c,0,0);
+
+  return blur.toDataURL("image/png").split(",")[1];
+}
+
+/* логотип-оверлей */
+async function composeLogoOver(imgDataUrl){
+  let baseImg, logoImg;
+  try { baseImg = await loadImage(imgDataUrl); } catch { return imgDataUrl; }
+  try { logoImg = await loadImage("logo.png"); } catch { return imgDataUrl; }
+  const w = baseImg.width, h = baseImg.height;
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  const g=c.getContext("2d");
+  g.drawImage(baseImg,0,0,w,h);
+  const logoW = Math.max(120, Math.round(w*0.16));
+  const scale = logoW / logoImg.width;
+  const logoH = Math.round(logoImg.height * scale);
+  const pad = Math.max(16, Math.round(Math.min(w,h)*0.02));
+  const x = w - logoW - pad;
+  const y = h - logoH - pad;
+  g.fillStyle = "rgba(255,255,255,0.85)";
+  const br = Math.round(logoH*0.18);
+  g.beginPath();
+  g.moveTo(x+br,y);
+  g.arcTo(x+logoW,y,x+logoW,y+logoH,br);
+  g.arcTo(x+logoW,y+logoH,x,y+logoH,br);
+  g.arcTo(x,y+logoH,x,y,br);
+  g.arcTo(x,y,x+logoW,y,br);
+  g.closePath(); g.fill();
+  g.drawImage(logoImg, x, y, logoW, logoH);
+  return c.toDataURL("image/png");
+}
+
+/* промпты ролей — с явными элементами сцены */
+function rolePrompt(role){
+  if (role==="журналист")
+    return "replace ONLY the masked BACKGROUND with a TV news studio: video walls with headlines, newsroom monitors, glass anchor desk in front with several microphones on stands slightly out of focus; cinematic editorial lighting; photorealistic; no text overlay";
+  if (role==="блогер")
+    return "replace ONLY the masked BACKGROUND with a creator studio: ring light, camera on tripod, softbox lights, shelves with décor and a neon accent; clean bright look; photorealistic; no text overlay";
+  if (role==="фотограф")
+    return "replace ONLY the masked BACKGROUND with a professional photo studio: tripods, C-stands, softboxes, backdrop rolls, camera gear; moody studio lighting; photorealistic; no text overlay";
+  return "replace ONLY the masked BACKGROUND with a neutral professional studio; photorealistic; no text overlay";
+}
+
+async function generateImage(){
+  if (!file) return;
+  statusEl.innerText="Обработка: сегментация человека…";
+  resultBox.style.display="none"; download.style.display="none"; hideErr(); logsEl.style.display="none";
+
+  try{
+    const resized = await resizeFile(file);
+
+    const mask_b64 = await makePersonMask(resized.dataUrl);
+    statusEl.innerText="Генерация фона…";
+
+    const fd = new FormData();
+    fd.append("role", role);
+    fd.append("image_b64", resized.b64);
+    fd.append("mask_b64", mask_b64);
+    fd.append("prompt", rolePrompt(role));
+
+    const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
+    const t = await r.text();
+    let j = null;
+    try { j = JSON.parse(t); } catch { showLogs(t); return showErr("Некорректный ответ сервера (ожидался JSON)."); }
+
+    showLogs(j);
+
+    if (!r.ok) {
+      return showErr(j?.error ? `AI ошибка: ${j.error}${j.details?` — ${j.details}`:''}` : 'AI не вернул изображение.');
+    }
+    if (!j.imageBase64) return showErr('AI не прислал изображение (пусто).');
+
+    let imgUrl = "data:image/png;base64," + j.imageBase64;
+
+    imgUrl = await composeLogoOver(imgUrl);
+    resultImg.src = imgUrl;
+    resultBox.style.display="block";
+    download.href = imgUrl;
+    download.style.display="inline-block";
+    statusEl.innerText = `Готово ✓ · ${j.stage || j.modelUsed || 'Workers AI (inpaint)'}`;
+  }catch(e){
+    if (e.name === "AbortError") showErr("Превышено время ожидания ответа сервера.");
+    else showErr(e.message || "Неизвестная ошибка сети");
+  }
+}
+</script>
+</body>
+</html>

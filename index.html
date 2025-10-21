@@ -209,7 +209,6 @@ async function generateImage(){
     fd.append("height", String(resized.height));
     fd.append("force_upscale", "1024");
     fd.append("use_exp_model", "1");
-    fd.append("force_sd", "1"); // включено: тестим SD-ветку напрямую
 
     const r = await fetchWithTimeout(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 90000);
     const t = await r.text();

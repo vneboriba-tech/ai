@@ -86,8 +86,8 @@ const MAX_SIZE = 1024;
 let file=null, role="журналист";
 let bp=null, poseModel=null;
 
-const CLOTH_STRENGTH = 0.45; // инпейнт одежды (512x512)
-const BG_STEPS = 20;         // SDXL лимит
+const CLOTH_STRENGTH = 0.45;
+const BG_STEPS = 20;
 
 const input = document.getElementById("fileInput");
 const drop  = document.getElementById("dropzone");
@@ -155,6 +155,15 @@ function binarizeAlpha(canvas, thr=128){
     id.data[i]=id.data[i+1]=id.data[i+2]=0; id.data[i+3]=v;
   }
   g.putImageData(id,0,0); return canvas;
+}
+// <<< FIX: добавлена функция morph()
+function morph(maskCanvas, blurPx = 4, thr = 128) {
+  const w = maskCanvas.width, h = maskCanvas.height;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  g.filter = `blur(${blurPx}px)`;
+  g.drawImage(maskCanvas, 0, 0);
+  return binarizeAlpha(c, thr);
 }
 function closeMask(canvas, blurPx=8, thr=64){
   const w=canvas.width,h=canvas.height;
@@ -306,7 +315,7 @@ async function buildMattesAndBBox(dataUrl){
     for(let i=0;i<w*h;i++) id.data[i*4+3]=(person.data[i]===1)?255:0;
     g.putImageData(id,0,0);
   }
-  // union с выпуклой оболочкой позы -> закрытие дыр -> лёгкая дилатация
+  // union с hull -> закрытие дыр -> лёгкая дилатация
   const hull = poseHullMask(w,h,kp);
   const union=document.createElement("canvas"); union.width=w; union.height=h;
   { const g=union.getContext("2d"); g.drawImage(baseMask,0,0); g.globalCompositeOperation="lighter"; g.drawImage(hull,0,0); g.globalCompositeOperation="source-over"; }
@@ -340,10 +349,10 @@ async function buildMattesAndBBox(dataUrl){
     bodyMaskCanvas.width=w; bodyMaskCanvas.height=h; bodyMaskCanvas.getContext("2d").drawImage(b,0,0);
   }
 
-  // reserve mask (шире для безопасной зоны)
+  // reserve mask (шире)
   const reserve=document.createElement("canvas"); reserve.width=w; reserve.height=h; const gr=reserve.getContext("2d");
   gr.fillStyle="#000"; gr.fillRect(0,0,w,h); gr.fillStyle="#fff";
-  const r=Math.max(bbox.w,bbox.h)*0.16; // было 0.08
+  const r=Math.max(bbox.w,bbox.h)*0.16;
   gr.beginPath(); gr.moveTo(bbox.x+r,bbox.y);
   gr.arcTo(bbox.x+bbox.w,bbox.y,bbox.x+bbox.w,bbox.y+bbox.h,r);
   gr.arcTo(bbox.x+bbox.w,bbox.y+bbox.h,bbox.x,bbox.y+bbox.h,r);
@@ -496,6 +505,19 @@ async function generate(){
     const matteCanvas=document.createElement("canvas"); matteCanvas.width=bg.width; matteCanvas.height=bg.height;
     matteCanvas.getContext("2d").drawImage(matteP,0,0);
     const { inner, outer } = makeFeatherPair(matteCanvas, 3, 14);
+
+    // пирамида масок
+    function makeMaskPyramid(outerFeather, innerFeather, levels=3){
+      const baseW=outerFeather.width, baseH=outerFeather.height;
+      const grad=document.createElement("canvas"); grad.width=baseW; grad.height=baseH;
+      const gg=grad.getContext("2d");
+      gg.drawImage(outerFeather,0,0);
+      gg.globalCompositeOperation="destination-out";
+      gg.drawImage(innerFeather,0,0);
+      gg.globalCompositeOperation="source-over";
+      const soft = gaussianBlur(grad, 6);
+      return buildPyramid(soft, levels);
+    }
     const maskPyr = makeMaskPyramid(outer, inner, 3);
 
     const bodyAdj=document.createElement("canvas"); bodyAdj.width=body.width; bodyAdj.height=body.height;
@@ -509,8 +531,8 @@ async function generate(){
 
     g.clearRect(0,0,comp.width,comp.height);
     g.drawImage(bg,0,0);
-    g.drawImage(blended, dx, 0);   // тело
-    g.drawImage(headH, dx, 0);     // голова+кисти
+    g.drawImage(blended, dx, 0);
+    g.drawImage(headH, dx, 0);
 
     let outUrl = comp.toDataURL("image/png");
     outUrl = await addContactShadow(outUrl, { ...mats.bbox, x: mats.bbox.x + dx });

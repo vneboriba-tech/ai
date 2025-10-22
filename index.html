@@ -4,16 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Почувствуй себя журналистом</title>
-  <meta name="description" content="Журналист / Блогер / Фотограф — смена фона и образа с учётом позы, с сохранением лица и рук" />
+  <meta name="description" content="Журналист / Блогер / Фотограф — фон и образ под позу, с сохранением лица и рук" />
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
     * { box-sizing:border-box; }
-    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;}
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial;}
     body { display:flex; flex-direction:column; align-items:center; min-height:100vh; }
     header { text-align:center; margin-top:24px; margin-bottom:16px; }
     h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
     .container { width:100%; max-width:960px; padding:20px; }
-    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
+    .uploader { border:2px dashed var(--border); border-radius:24px; padding:40px 20px;
+      background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
     .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
     .uploader img.logo { width:72px; height:72px; margin-bottom:12px; }
     .headline { font-weight:700; font-size:18px; }
@@ -23,7 +25,8 @@
     .roles-title { text-align:center; font-weight:700; font-size:18px; }
     .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
     @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
-    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
+    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700;
+      cursor:pointer; background:#fff; transition:.15s; }
     .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
     .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
@@ -35,6 +38,7 @@
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
     pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
   </style>
+
   <!-- TF.js + BodyPix + Pose (MoveNet) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js"></script>
@@ -85,7 +89,7 @@ const MAX_SIZE = 1024;
 let file=null, role="журналист";
 let bp=null, poseModel=null;
 
-const CLOTH_STRENGTH = 0.35; // мягкая смена одежды (маска)
+const CLOTH_STRENGTH = 0.40; // локальная смена одежды (512×512)
 const BG_STEPS = 20;         // SDXL лимит
 
 const input = document.getElementById("fileInput");
@@ -122,8 +126,7 @@ async function loadPose(){
   if (poseModel) return poseModel;
   statusEl.innerText="Загрузка позы…";
   const m = poseDetection.SupportedModels.MoveNet;
-  // ✅ фикс: корректное значение modelType
-  poseModel = await poseDetection.createDetector(m, { modelType: 'SinglePose.Lightning' });
+  poseModel = await poseDetection.createDetector(m, { modelType: 'SinglePose.Lightning' }); // фикс
   return poseModel;
 }
 
@@ -144,6 +147,36 @@ async function resizeFile(f){
   const out=c.toDataURL("image/jpeg",0.92);
   return {w,h, dataUrl:out, b64:out.split(",")[1]};
 }
+
+/* —————— утилиты локального кропа 512×512 —————— */
+function cropSquareAroundBBox(img, bbox, padK=0.25, outSize=512){
+  const w=img.width, h=img.height;
+  const side = Math.min(Math.max(bbox.w, bbox.h)*(1+padK), Math.min(w,h));
+  const cx = bbox.x + bbox.w/2, cy = bbox.y + bbox.h/2;
+  const x = Math.max(0, Math.min(w-side, cx - side/2));
+  const y = Math.max(0, Math.min(h-side, cy - side/2));
+  const c=document.createElement("canvas"); c.width=outSize; c.height=outSize;
+  const g=c.getContext("2d"); g.drawImage(img, x,y,side,side, 0,0,outSize,outSize);
+  return { dataUrl: c.toDataURL("image/png"), rect:{x,y,side} };
+}
+
+function dilateFeatherMaskDataUrl(maskDataUrl, radius=8, blur=8){
+  return new Promise(async (res)=>{
+    const maskImg = await loadImg(maskDataUrl);
+    const w=maskImg.width, h=maskImg.height;
+    const c=document.createElement("canvas"); c.width=w; c.height=h; const g=c.getContext("2d");
+    // базовый ч/б
+    g.drawImage(maskImg,0,0);
+    // «дилатация» — размазываем
+    const d=document.createElement("canvas"); d.width=w; d.height=h; const gd=d.getContext("2d");
+    gd.filter=`blur(${radius}px)`; gd.drawImage(c,0,0);
+    // перья
+    const out=document.createElement("canvas"); out.width=w; out.height=h; const go=out.getContext("2d");
+    go.filter=`blur(${blur}px)`; go.drawImage(d,0,0);
+    res(out.toDataURL("image/png"));
+  });
+}
+/* ———————————————————————————————————————————————— */
 
 /* матты + bbox */
 async function buildMattesAndBBox(dataUrl){
@@ -196,7 +229,7 @@ async function buildMattesAndBBox(dataUrl){
   gh.drawImage(base,0,0,w,h); gh.globalCompositeOperation="destination-in"; gh.drawImage(headHandsMask,0,0); gh.globalCompositeOperation="source-over";
   const headHands_png_b64 = headCanvas.toDataURL("image/png").split(",")[1];
 
-  // reserve mask (очистка фона под человеком)
+  // reserve mask для очистки фона под человеком
   const reserve=document.createElement("canvas"); reserve.width=w; reserve.height=h;
   const gr=reserve.getContext("2d");
   gr.fillStyle="#000"; gr.fillRect(0,0,w,h);
@@ -234,6 +267,7 @@ function outfitPrompt(role){
   return "subtle outfit update; keep identity";
 }
 
+/* контактная тень */
 async function addContactShadow(baseUrl, bbox){
   const img=await loadImg(baseUrl);
   const c=document.createElement("canvas"); c.width=img.width; c.height=img.height;
@@ -247,6 +281,7 @@ async function addContactShadow(baseUrl, bbox){
   return c.toDataURL("image/png");
 }
 
+/* логотип */
 async function composeLogoOver(imgDataUrl){
   const base = await loadImg(imgDataUrl);
   const logo = await loadImg("logo.png").catch(()=>null);
@@ -272,12 +307,15 @@ async function generate(){
   statusEl.innerText="Подготовка…"; resultBox.style.display="none"; download.style.display="none"; hideErr(); logsEl.style.display="none";
 
   try{
-    const {w,h,dataUrl,b64} = await resizeFile(file);
+    // 0) ресайз исходника
+    let {w,h,dataUrl,b64} = await resizeFile(file);
 
-    statusEl.innerText="Шаг 1/5: анализ позы и сегментация…";
+    // 1) матты + bbox
+    statusEl.innerText="Шаг 1/6: анализ позы и сегментация…";
     const mats = await buildMattesAndBBox(dataUrl);
 
-    statusEl.innerText="Шаг 2/5: генерация фона…";
+    // 2) фон точного размера
+    statusEl.innerText="Шаг 2/6: генерация фона…";
     let fd=new FormData();
     fd.append("mode","gen-bg");
     fd.append("width", String(w));
@@ -289,56 +327,97 @@ async function generate(){
     if (!r.ok || !j.imageBase64) return showErr(j?.error||"Не удалось создать фон");
     let bgUrl="data:image/png;base64,"+j.imageBase64;
 
-    statusEl.innerText="Шаг 3/5: подчистка фона под человека…";
+    // 3) подчистка фона под человеком (резерв)
+    statusEl.innerText="Шаг 3/6: подчистка фона под человека…";
     fd=new FormData();
     fd.append("mode","bg-inpaint");
     fd.append("image_b64", bgUrl.split(",")[1]);
-    fd.append("mask_b64", mats.reserve_mask_b64); // белое=менять окрестность под человеком
-    fd.append("prompt", "keep background consistent, clean space for a standing person; photorealistic; no text");
+    fd.append("mask_b64", mats.reserve_mask_b64); // белое = менять
+    fd.append("prompt", "keep background consistent and clean space for a standing person; photorealistic; no text");
     r=await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
     j=JSON.parse(await r.text());
     if (r.ok && j.imageBase64) bgUrl = "data:image/png;base64,"+j.imageBase64;
 
-    statusEl.innerText="Шаг 4/5: обновляем одежду…";
-    fd=new FormData();
-    fd.append("mode","wardrobe-mask");
-    fd.append("image_b64", b64);
-    fd.append("mask_b64", mats.bodyOnly_mask_b64);
-    fd.append("prompt", outfitPrompt(role));
-    fd.append("strength", String(CLOTH_STRENGTH));
-    r=await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
-    j=JSON.parse(await r.text());
-    const outfitUrl = j?.imageBase64 ? "data:image/png;base64,"+j.imageBase64 : dataUrl;
+    // 3.5) манекен по позе (локальный кроп 512×512)
+    statusEl.innerText="Шаг 4/6: построение манекена…";
+    const fullImg = await loadImg(dataUrl);
+    const crop = cropSquareAroundBBox(fullImg, mats.bbox, 0.25, 512);
 
-    statusEl.innerText="Шаг 5/5: сборка…";
-    const bg = await loadImg(bgUrl);
-    const bodySrc = await loadImg(outfitUrl);
+    // силуэт = кроп исходника + полупрозрачная матта (подсказываем позу)
+    const silhouette = document.createElement("canvas");
+    silhouette.width=512; silhouette.height=512;
+    {
+      const g=silhouette.getContext("2d");
+      const src = await loadImg(crop.dataUrl); g.drawImage(src,0,0,512,512);
+      const matte = await loadImg("data:image/png;base64,"+mats.mattePerson_b64);
+      const matteCrop = cropSquareAroundBBox(matte, mats.bbox, 0.25, 512);
+      const mImg = await loadImg(matteCrop.dataUrl);
+      g.globalAlpha=0.65; g.drawImage(mImg,0,0);
+    }
+
+    let fdBP=new FormData();
+    fdBP.append("mode","body-proxy");
+    fdBP.append("image_b64", silhouette.toDataURL("image/png").split(",")[1]);
+    fdBP.append("prompt",
+      role==="журналист"
+        ? "upper body of a professional journalist wearing a tailored blazer and microphone pin, realistic proportions, neutral colors"
+        : role==="блогер"
+        ? "upper body of a trendy blogger in casual outfit, hoodie or denim jacket, realistic proportions"
+        : "upper body of a photographer in dark functional outfit, camera strap, realistic proportions"
+    );
+    let rBP = await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fdBP }, 120000);
+    let jBP = JSON.parse(await rBP.text());
+    let bodyProxy512 = jBP?.imageBase64 ? "data:image/png;base64,"+jBP.imageBase64 : crop.dataUrl;
+
+    // 4) инпейнт одежды локально (512×512)
+    statusEl.innerText="Шаг 5/6: смена одежды…";
+    const bodyMaskFull = await loadImg("data:image/png;base64,"+mats.bodyOnly_mask_b64);
+    const bodyMaskCrop512 = cropSquareAroundBBox(bodyMaskFull, mats.bbox, 0.25, 512);
+    const dilatedMask512 = await dilateFeatherMaskDataUrl(bodyMaskCrop512.dataUrl, 8, 8);
+
+    const fdW = new FormData();
+    fdW.append("mode","wardrobe-mask");
+    fdW.append("image_b64", bodyProxy512.split(",")[1]);
+    fdW.append("mask_b64",  dilatedMask512.split(",")[1]);
+    fdW.append("prompt", outfitPrompt(role));
+    fdW.append("strength", String(CLOTH_STRENGTH));
+    const rW = await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fdW }, 120000);
+    const jW = JSON.parse(await rW.text());
+    const outfit512 = jW?.imageBase64 ? "data:image/png;base64,"+jW.imageBase64 : bodyProxy512;
+
+    // вклейка 512→в полный размер (получаем новое "тело-источник")
+    const fullC=document.createElement("canvas"); fullC.width=fullImg.width; fullC.height=fullImg.height;
+    const gfull=fullC.getContext("2d"); gfull.drawImage(fullImg,0,0);
+    const o512=await loadImg(outfit512);
+    const {x,y,side}=crop.rect;
+    gfull.drawImage(o512, x,y,side,side);
+    dataUrl = fullC.toDataURL("image/png"); // новый источник (с телом)
+    b64 = dataUrl.split(",")[1];
+
+    // 5) финальная сборка: фон → тело по матте → голова/кисти → тень → лого
+    statusEl.innerText="Шаг 6/6: сборка сцены…";
+    const bg   = await loadImg(bgUrl);
+    const body = await loadImg(dataUrl);
     const matteP = await loadImg("data:image/png;base64,"+mats.mattePerson_b64);
     const headH  = await loadImg("data:image/png;base64,"+mats.headHands_png_b64);
 
-    const comp = document.createElement("canvas"); comp.width=bg.width; comp.height=bg.height;
+    const comp=document.createElement("canvas"); comp.width=bg.width; comp.height=bg.height;
     const g=comp.getContext("2d"); g.drawImage(bg,0,0);
 
-    // тело по матту
     const tmp=document.createElement("canvas"); tmp.width=bg.width; tmp.height=bg.height;
-    const gt=tmp.getContext("2d"); gt.drawImage(bodySrc,0,0); gt.globalCompositeOperation="destination-in"; gt.drawImage(matteP,0,0); gt.globalCompositeOperation="source-over";
+    const gt=tmp.getContext("2d"); gt.drawImage(body,0,0); gt.globalCompositeOperation="destination-in"; gt.drawImage(matteP,0,0); gt.globalCompositeOperation="source-over";
     g.drawImage(tmp,0,0);
-
-    // голова+кисти
     g.drawImage(headH,0,0);
 
-    // тень
-    let composedUrl = comp.toDataURL("image/png");
-    composedUrl = await addContactShadow(composedUrl, mats.bbox);
+    let outUrl = comp.toDataURL("image/png");
+    outUrl = await addContactShadow(outUrl, mats.bbox);
+    outUrl = await composeLogoOver(outUrl);
 
-    // лого
-    composedUrl = await composeLogoOver(composedUrl);
-
-    resultImg.src = composedUrl;
+    resultImg.src = outUrl;
     resultBox.style.display="block";
-    download.href = composedUrl;
+    download.href = outUrl;
     download.style.display="inline-block";
-    statusEl.innerText="Готово ✓ · фон по позе + одежда + защита лица/рук";
+    statusEl.innerText="Готово ✓ · фон по позе + тело + одежда + защита лица/рук";
   }catch(e){
     showErr(e.message||"Неизвестная ошибка");
   }

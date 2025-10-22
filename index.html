@@ -86,7 +86,7 @@ const MAX_SIZE = 1024;
 let file=null, role="журналист";
 let bp=null, poseModel=null;
 
-const CLOTH_STRENGTH = 0.45; // сильнее локальная смена одежды (512×512)
+const CLOTH_STRENGTH = 0.45; // инпейнт одежды (512x512)
 const BG_STEPS = 20;         // SDXL лимит
 
 const input = document.getElementById("fileInput");
@@ -145,7 +145,7 @@ async function resizeFile(f){
   return {w,h, dataUrl:out, b64:out.split(",")[1]};
 }
 
-/* ======= утилиты для масок / кропа ======= */
+/* ======= утилиты масок/кропов/смешивания ======= */
 function binarizeAlpha(canvas, thr=128){
   const w=canvas.width, h=canvas.height;
   const g=canvas.getContext("2d");
@@ -173,10 +173,8 @@ function poseHullMask(w,h,keypoints){
   for(let i=pts.length-1;i>=0;i--){ const p=pts[i]; while(upper.length>=2 && cross(upper[upper.length-2], upper[upper.length-1], p)<=0) upper.pop(); upper.push(p); }
   upper.pop(); lower.pop();
   const hull=[...lower,...upper];
-  g.fillStyle="#fff"; g.beginPath();
-  g.moveTo(hull[0].x,hull[0].y); for(const p of hull) g.lineTo(p.x,p.y); g.closePath(); g.fill();
-  const d=document.createElement("canvas"); d.width=w; d.height=h; const gd=d.getContext("2d");
-  gd.filter="blur(10px)"; gd.drawImage(c,0,0); return d;
+  g.fillStyle="#fff"; g.beginPath(); g.moveTo(hull[0].x,hull[0].y); for(const p of hull) g.lineTo(p.x,p.y); g.closePath(); g.fill();
+  const d=document.createElement("canvas"); d.width=w; d.height=h; const gd=d.getContext("2d"); gd.filter="blur(10px)"; gd.drawImage(c,0,0); return d;
 }
 function cropSquareAroundBBox(img, bbox, padK=0.22, outSize=512){
   const w=img.width, h=img.height;
@@ -201,7 +199,82 @@ function dilateFeatherMaskDataUrl(maskDataUrl, radius=10, blur=12){
     res(out.toDataURL("image/png"));
   });
 }
-/* ========================================= */
+function gaussianBlur(canvas, r){
+  const w=canvas.width, h=canvas.height;
+  const c=document.createElement("canvas"); c.width=w; c.height=h;
+  const g=c.getContext("2d"); g.filter=`blur(${r}px)`; g.drawImage(canvas,0,0);
+  return c;
+}
+function buildPyramid(canvas, levels=3){
+  const pyr=[canvas];
+  for(let i=1;i<levels;i++){
+    const prev=pyr[i-1], w=Math.max(1, prev.width>>1), h=Math.max(1, prev.height>>1);
+    const c=document.createElement("canvas"); c.width=w; c.height=h;
+    const g=c.getContext("2d"); g.drawImage(prev,0,0,prev.width,prev.height, 0,0,w,h);
+    pyr.push(c);
+  }
+  return pyr.map((c,i)=> gaussianBlur(c, Math.max(1, 4-i*1.5)));
+}
+function blendPyramid(fgPyr, bgPyr, maskPyr){
+  const levels=fgPyr.length;
+  let comp = bgPyr[levels-1];
+  for(let i=levels-2;i>=0;i--){
+    const w=bgPyr[i].width, h=bgPyr[i].height;
+    const c=document.createElement("canvas"); c.width=w; c.height=h;
+    const g=c.getContext("2d");
+    const up=document.createElement("canvas"); up.width=w; up.height=h;
+    up.getContext("2d").drawImage(comp,0,0,comp.width,comp.height,0,0,w,h);
+
+    g.drawImage(bgPyr[i],0,0);
+    const m=maskPyr[i];
+
+    const masked=document.createElement("canvas"); masked.width=w; masked.height=h;
+    const gm=masked.getContext("2d"); gm.drawImage(fgPyr[i],0,0); gm.globalCompositeOperation="destination-in"; gm.drawImage(m,0,0);
+
+    const inv=document.createElement("canvas"); inv.width=w; inv.height=h;
+    const gi=inv.getContext("2d"); gi.drawImage(bgPyr[i],0,0); gi.globalCompositeOperation="destination-out"; gi.drawImage(m,0,0);
+
+    g.clearRect(0,0,w,h);
+    g.drawImage(inv,0,0); g.drawImage(masked,0,0);
+    g.globalAlpha=0.5; g.drawImage(up,0,0); g.globalAlpha=1.0;
+    comp=c;
+  }
+  return comp;
+}
+function makeFeatherPair(matteCanvas, innerShrink=3, outerGrow=14){
+  const inner = morph(matteCanvas, innerShrink, 140);
+  const outer = morph(matteCanvas, outerGrow, 20);
+  return { inner, outer };
+}
+function statsRGB(canvas, rect){
+  const {x,y,w,h} = rect;
+  const g=canvas.getContext("2d");
+  const id=g.getImageData(Math.max(0,x|0), Math.max(0,y|0), Math.max(1,w|0), Math.max(1,h|0));
+  const n=id.data.length/4;
+  let mr=0,mg=0,mb=0; for(let i=0;i<id.data.length;i+=4){ mr+=id.data[i]; mg+=id.data[i+1]; mb+=id.data[i+2]; }
+  mr/=n; mg/=n; mb/=n;
+  let vr=0,vg=0,vb=0; for(let i=0;i<id.data.length;i+=4){ vr+=(id.data[i]-mr)**2; vg+=(id.data[i+1]-mg)**2; vb+=(id.data[i+2]-mb)**2; }
+  vr=Math.sqrt(vr/n); vg=Math.sqrt(vg/n); vb=Math.sqrt(vb/n);
+  return {mean:[mr,mg,mb], std:[vr,vg,vb]};
+}
+function matchColors(srcCanvas, targetStats){
+  const w=srcCanvas.width, h=srcCanvas.height;
+  const g=srcCanvas.getContext("2d");
+  const id=g.getImageData(0,0,w,h);
+  const s=statsRGB(srcCanvas,{x:0,y:0,w,h});
+  const out=id.data;
+  for(let i=0;i<out.length;i+=4){
+    for(let c=0;c<3;c++){
+      const ch=out[i+c];
+      const z = s.std[c]>1 ? (ch - s.mean[c]) / s.std[c] : 0;
+      const m = z * (targetStats.std[c]||1) + (targetStats.mean[c]||0);
+      out[i+c] = Math.max(0, Math.min(255, m));
+    }
+  }
+  g.putImageData(id,0,0);
+  return srcCanvas;
+}
+/* ============================================ */
 
 /* матты + bbox (улучшенные) */
 async function buildMattesAndBBox(dataUrl){
@@ -267,10 +340,10 @@ async function buildMattesAndBBox(dataUrl){
     bodyMaskCanvas.width=w; bodyMaskCanvas.height=h; bodyMaskCanvas.getContext("2d").drawImage(b,0,0);
   }
 
-  // reserve mask (подчистка фона)
+  // reserve mask (шире для безопасной зоны)
   const reserve=document.createElement("canvas"); reserve.width=w; reserve.height=h; const gr=reserve.getContext("2d");
   gr.fillStyle="#000"; gr.fillRect(0,0,w,h); gr.fillStyle="#fff";
-  const r=Math.max(bbox.w,bbox.h)*0.08;
+  const r=Math.max(bbox.w,bbox.h)*0.16; // было 0.08
   gr.beginPath(); gr.moveTo(bbox.x+r,bbox.y);
   gr.arcTo(bbox.x+bbox.w,bbox.y,bbox.x+bbox.w,bbox.y+bbox.h,r);
   gr.arcTo(bbox.x+bbox.w,bbox.y+bbox.h,bbox.x,bbox.y+bbox.h,r);
@@ -312,7 +385,6 @@ async function addContactShadow(baseUrl, bbox){
   g.restore();
   return c.toDataURL("image/png");
 }
-
 async function composeLogoOver(imgDataUrl){
   const base = await loadImg(imgDataUrl);
   const logo = await loadImg("logo.png").catch(()=>null);
@@ -417,24 +489,35 @@ async function generate(){
     const srcCX = mats.bbox.x + mats.bbox.w/2;
     const dx = Math.round(targetCX - srcCX);
 
+    // фон
     g.drawImage(bg,0,0);
 
-    // мягкая маска (feather 10px)
-    const tmp=document.createElement("canvas"); tmp.width=bg.width; tmp.height=bg.height;
-    const gt=tmp.getContext("2d"); gt.drawImage(body,0,0);
-    const soft=document.createElement("canvas"); soft.width=bg.width; soft.height=bg.height;
-    const gs=soft.getContext("2d"); gs.filter="blur(10px)"; gs.drawImage(matteP,0,0);
-    gt.globalCompositeOperation="destination-in"; gt.drawImage(soft,0,0); gt.globalCompositeOperation="source-over";
+    // мягкие маски + пирамидное смешивание + цветовой матч
+    const matteCanvas=document.createElement("canvas"); matteCanvas.width=bg.width; matteCanvas.height=bg.height;
+    matteCanvas.getContext("2d").drawImage(matteP,0,0);
+    const { inner, outer } = makeFeatherPair(matteCanvas, 3, 14);
+    const maskPyr = makeMaskPyramid(outer, inner, 3);
 
-    g.drawImage(tmp, dx, 0);
-    g.drawImage(headH, dx, 0);
+    const bodyAdj=document.createElement("canvas"); bodyAdj.width=body.width; bodyAdj.height=body.height;
+    bodyAdj.getContext("2d").drawImage(body,0,0);
+    const bgStats = statsRGB(comp, { x: Math.max(0, mats.bbox.x + dx - 20), y: Math.max(0, mats.bbox.y - 20), w: mats.bbox.w + 40, h: mats.bbox.h + 40 });
+    matchColors(bodyAdj, bgStats);
+
+    const bodyPyr   = buildPyramid(bodyAdj, 3);
+    const bgPyr     = buildPyramid(comp, 3);
+    const blended   = blendPyramid(bodyPyr, bgPyr, maskPyr);
+
+    g.clearRect(0,0,comp.width,comp.height);
+    g.drawImage(bg,0,0);
+    g.drawImage(blended, dx, 0);   // тело
+    g.drawImage(headH, dx, 0);     // голова+кисти
 
     let outUrl = comp.toDataURL("image/png");
     outUrl = await addContactShadow(outUrl, { ...mats.bbox, x: mats.bbox.x + dx });
     outUrl = await composeLogoOver(outUrl);
 
     resultImg.src=outUrl; resultBox.style.display="block"; download.href=outUrl; download.style.display="inline-block";
-    statusEl.innerText="Готово ✓ · фон по позе + тело + одежда + мягкие края + центрирование";
+    statusEl.innerText="Готово ✓ · невидимая граница, цвет под фон, центрирование";
   }catch(e){
     showErr(e.message||"Неизвестная ошибка");
   }

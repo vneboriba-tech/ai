@@ -145,7 +145,7 @@ async function resizeFile(f){
   return {w,h, dataUrl:out, b64:out.split(",")[1]};
 }
 
-/* ======= утилиты масок/кропов/цвета ======= */
+/* ======= утилиты масок/цвета ======= */
 function binarizeAlpha(canvas, thr=128){
   const w=canvas.width, h=canvas.height;
   const g=canvas.getContext("2d");
@@ -156,7 +156,6 @@ function binarizeAlpha(canvas, thr=128){
   }
   g.putImageData(id,0,0); return canvas;
 }
-// morph = blur + threshold (эрозия/дилатация по альфе)
 function morph(maskCanvas, blurPx = 4, thr = 128) {
   const w = maskCanvas.width, h = maskCanvas.height;
   const c = document.createElement("canvas"); c.width = w; c.height = h;
@@ -185,29 +184,6 @@ function poseHullMask(w,h,keypoints){
   g.fillStyle="#fff"; g.beginPath(); g.moveTo(hull[0].x,hull[0].y); for(const p of hull) g.lineTo(p.x,p.y); g.closePath(); g.fill();
   const d=document.createElement("canvas"); d.width=w; d.height=h; const gd=d.getContext("2d"); gd.filter="blur(10px)"; gd.drawImage(c,0,0); return d;
 }
-function cropSquareAroundBBox(img, bbox, padK=0.22, outSize=512){
-  const w=img.width, h=img.height;
-  const side = Math.min(Math.max(bbox.w, bbox.h)*(1+padK), Math.min(w,h));
-  const cx = bbox.x + bbox.w/2, cy = bbox.y + bbox.h/2;
-  const x = Math.max(0, Math.min(w-side, cx - side/2));
-  const y = Math.max(0, Math.min(h-side, cy - side/2));
-  const c=document.createElement("canvas"); c.width=outSize; c.height=outSize;
-  const g=c.getContext("2d"); g.drawImage(img, x,y,side,side, 0,0,outSize,outSize);
-  return { dataUrl: c.toDataURL("image/png"), rect:{x,y,side} };
-}
-function dilateFeatherMaskDataUrl(maskDataUrl, radius=10, blur=12){
-  return new Promise(async (res)=>{
-    const maskImg = await loadImg(maskDataUrl);
-    const w=maskImg.width, h=maskImg.height;
-    const c=document.createElement("canvas"); c.width=w; c.height=h; const g=c.getContext("2d");
-    g.drawImage(maskImg,0,0);
-    const d=document.createElement("canvas"); d.width=w; d.height=h; const gd=d.getContext("2d");
-    gd.filter=`blur(${radius}px)`; gd.drawImage(c,0,0);
-    const out=document.createElement("canvas"); out.width=w; out.height=h; const go=out.getContext("2d");
-    go.filter=`blur(${blur}px)`; go.drawImage(d,0,0);
-    res(out.toDataURL("image/png"));
-  });
-}
 function statsRGB(canvas, rect){
   const {x,y,w,h} = rect;
   const g=canvas.getContext("2d");
@@ -216,7 +192,7 @@ function statsRGB(canvas, rect){
   let mr=0,mg=0,mb=0; for(let i=0;i<id.data.length;i+=4){ mr+=id.data[i]; mg+=id.data[i+1]; mb+=id.data[i+2]; }
   mr/=n; mg/=n; mb/=n;
   let vr=0,vg=0,vb=0; for(let i=0;i<id.data.length;i+=4){ vr+=(id.data[i]-mr)**2; vg+=(id.data[i+1]-mg)**2; vb+=(id.data[i+2]-mb)**2; }
-  vr=Math.sqrt(vr/n); vg=Math.sqrt(vg/n); vb=Math.sqrt(vb/n);
+  vr=Math.sqrt(vr/n); vg=Math.sqrt(vr/n); vb=Math.sqrt(vr/n); // одинаковый RMS-оценщик
   return {mean:[mr,mg,mb], std:[vr,vg,vb]};
 }
 function matchColors(srcCanvas, targetStats){
@@ -236,9 +212,25 @@ function matchColors(srcCanvas, targetStats){
   g.putImageData(id,0,0);
   return srcCanvas;
 }
-/* ============================================ */
 
-/* матты + bbox */
+/* ===== Prompts (реалистичные) ===== */
+function bgPrompt(role){
+  if (role==="журналист")
+    return "broadcast newsroom, glass anchor desk, cameras and boom mics, LED video wall with abstract news graphics, ceiling light panels with soft falloff, subtle floor reflections, shallow depth of field, photographic noise, correct perspective lines; photorealistic; no readable text";
+  if (role==="блогер")
+    return "creator studio, ring light, softboxes, green screen, tripod camera, cozy décor, shelves with props, shallow depth of field, photographic noise, correct perspective; photorealistic; no readable text";
+  if (role==="фотограф")
+    return "professional photo studio, backdrop rolls, C-stands, light stands, softboxes, cables, realistic shadows, slight lens falloff, photographic noise, correct perspective; photorealistic; no readable text";
+  return "neutral professional studio background, photographic noise, realistic lighting; no text";
+}
+function outfitPrompt(role){
+  if (role==="журналист") return "update ONLY clothing to smart-casual journalist style: tailored blazer in neutral tones, optional lapel mic; keep the same person and identity; photorealistic";
+  if (role==="блогер")    return "update ONLY clothing to stylish casual blogger style: light hoodie or tee, relaxed trousers; keep the same person and identity; photorealistic";
+  if (role==="фотограф")  return "update ONLY clothing to practical photographer style: dark utility vest or jacket; keep the same person and identity; photorealistic";
+  return "subtle outfit update; keep identity";
+}
+
+/* ====== построение маттов и bbox ====== */
 async function buildMattesAndBBox(dataUrl){
   await Promise.all([loadBP(), loadPose()]);
   const img=await loadImg(dataUrl); const w=img.width,h=img.height;
@@ -260,7 +252,7 @@ async function buildMattesAndBBox(dataUrl){
 
   const HEAD=new Set([0,1]); const ARMS=new Set([2,3,4,5]);
 
-  // base mask
+  // base person matte
   const baseMask=document.createElement("canvas"); baseMask.width=w; baseMask.height=h;
   {
     const g=baseMask.getContext("2d");
@@ -268,6 +260,7 @@ async function buildMattesAndBBox(dataUrl){
     for(let i=0;i<w*h;i++) id.data[i*4+3]=(person.data[i]===1)?255:0;
     g.putImageData(id,0,0);
   }
+  // hull → union → close → dilate
   const hull = poseHullMask(w,h,kp);
   const union=document.createElement("canvas"); union.width=w; union.height=h;
   { const g=union.getContext("2d"); g.drawImage(baseMask,0,0); g.globalCompositeOperation="lighter"; g.drawImage(hull,0,0); g.globalCompositeOperation="source-over"; }
@@ -276,7 +269,7 @@ async function buildMattesAndBBox(dataUrl){
   const mattePersonCanvas=document.createElement("canvas"); mattePersonCanvas.width=w; mattePersonCanvas.height=h;
   mattePersonCanvas.getContext("2d").drawImage(closedDilated,0,0);
 
-  // head+hands
+  // head+hands mask (с мостиком шеи)
   const hhMask=document.createElement("canvas"); hhMask.width=w; hhMask.height=h;
   {
     const g=hhMask.getContext("2d"); const id=g.createImageData(w,h);
@@ -284,8 +277,7 @@ async function buildMattesAndBBox(dataUrl){
     g.putImageData(id,0,0);
     const b=document.createElement("canvas"); b.width=w;b.height=h; const gb=b.getContext("2d"); gb.filter="blur(6px)"; gb.drawImage(hhMask,0,0);
     hhMask.width=w; hhMask.height=h; hhMask.getContext("2d").drawImage(b,0,0);
-
-    // ШЕЙНЫЙ МОСТИК — тонкая вставка для непрерывности лица->шея
+    // шея
     const nx = Math.round(bbox.x + bbox.w * 0.48);
     const ny = Math.round(bbox.y + bbox.h * 0.35);
     const nw = Math.round(bbox.w * 0.04);
@@ -295,21 +287,26 @@ async function buildMattesAndBBox(dataUrl){
     g2.fillRect(nx, ny, nw, nh);
   }
 
+  // слой головы/кистей
   const base=await loadImg(dataUrl);
   const headCanvas=document.createElement("canvas"); headCanvas.width=w; headCanvas.height=h;
   const gh=headCanvas.getContext("2d"); gh.drawImage(base,0,0,w,h);
   gh.globalCompositeOperation="destination-in"; gh.drawImage(hhMask,0,0); gh.globalCompositeOperation="source-over";
   const headHands_png_b64=headCanvas.toDataURL("image/png").split(",")[1];
 
+  // маска корпуса = person − (head+hands)
   const bodyMaskCanvas=document.createElement("canvas"); bodyMaskCanvas.width=w; bodyMaskCanvas.height=h;
   {
-    const g=bodyMaskCanvas.getContext("2d"); g.drawImage(mattePersonCanvas,0,0);
-    g.globalCompositeOperation="destination-out"; g.drawImage(hhMask,0,0); g.globalCompositeOperation="source-over";
-    const b=document.createElement("canvas"); b.width=w;b.height=h; const gb=b.getContext("2d"); gb.filter="blur(5px)"; gb.drawImage(bodyMaskCanvas,0,0);
+    const g=bodyMaskCanvas.getContext("2d");
+    g.drawImage(mattePersonCanvas,0,0);
+    g.globalCompositeOperation="destination-out"; g.drawImage(hhMask,0,0); // вычли голову/кисти
+    g.globalCompositeOperation="source-over";
+    // лёгкое уплотнение краёв для устойчивости
+    const b=document.createElement("canvas"); b.width=w;b.height=h; const gb=b.getContext("2d"); gb.filter="blur(3px)"; gb.drawImage(bodyMaskCanvas,0,0);
     bodyMaskCanvas.width=w; bodyMaskCanvas.height=h; bodyMaskCanvas.getContext("2d").drawImage(b,0,0);
   }
 
-  // широкая «резервная» маска под человека
+  // широкая «резервная» маска для подчистки фона
   const reserve=document.createElement("canvas"); reserve.width=w; reserve.height=h; const gr=reserve.getContext("2d");
   gr.fillStyle="#000"; gr.fillRect(0,0,w,h); gr.fillStyle="#fff";
   const r=Math.max(bbox.w,bbox.h)*0.16;
@@ -322,7 +319,7 @@ async function buildMattesAndBBox(dataUrl){
   const grf=reserveFeather.getContext("2d"); grf.filter="blur(10px)"; grf.drawImage(reserve,0,0);
 
   return {
-    mattePerson_b64: mattePersonCanvas.toDataURL("image/png").split(",")[1],
+    person_mask_b64: mattePersonCanvas.toDataURL("image/png").split(",")[1],
     headHands_png_b64,
     bodyOnly_mask_b64: bodyMaskCanvas.toDataURL("image/png").split(",")[1],
     reserve_mask_b64: reserveFeather.toDataURL("image/png").split(",")[1],
@@ -330,23 +327,15 @@ async function buildMattesAndBBox(dataUrl){
   };
 }
 
-/* ===== Prompts (реалистичные) ===== */
-function bgPrompt(role){
-  if (role==="журналист")
-    return "broadcast newsroom, glass anchor desk, cameras and boom mics, LED video wall with abstract news graphics, ceiling light panels with soft falloff, subtle floor reflections, shallow depth of field, photographic noise, correct perspective lines; photorealistic; no readable text";
-  if (role==="блогер")
-    return "creator studio, ring light, softboxes, green screen, tripod camera, cozy décor, shelves with props, shallow depth of field, photographic noise, correct perspective; photorealistic; no readable text";
-  if (role==="фотограф")
-    return "professional photo studio, backdrop rolls, C-stands, light stands, softboxes, cables, realistic shadows, slight lens falloff, photographic noise, correct perspective; photorealistic; no readable text";
-  return "neutral professional studio background, photographic noise, realistic lighting; no text";
+/* ===== Сервисные функции для композиции ===== */
+function subtractMasks(aCanvas, bCanvas){
+  const w=aCanvas.width, h=aCanvas.height;
+  const out=document.createElement("canvas"); out.width=w; out.height=h;
+  const g=out.getContext("2d"); g.drawImage(aCanvas,0,0);
+  g.globalCompositeOperation="destination-out"; g.drawImage(bCanvas,0,0);
+  g.globalCompositeOperation="source-over";
+  return out;
 }
-function outfitPrompt(role){
-  if (role==="журналист") return "update ONLY clothing to smart-casual journalist style: tailored blazer in neutral tones, optional lapel mic; keep the same person and identity; photorealistic";
-  if (role==="блогер")    return "update ONLY clothing to stylish casual blogger style: light hoodie or tee, relaxed trousers; keep the same person and identity; photorealistic";
-  if (role==="фотограф")  return "update ONLY clothing to practical photographer style: dark utility vest or jacket; keep the same person and identity; photorealistic";
-  return "subtle outfit update; keep identity";
-}
-
 async function addContactShadow(baseUrl, bbox){
   const img=await loadImg(baseUrl);
   const c=document.createElement("canvas"); c.width=img.width; c.height=img.height;
@@ -373,6 +362,7 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
+/* ===== Пайплайн ===== */
 async function generate(){
   if (!file) return;
   statusEl.innerText="Подготовка…"; resultBox.style.display="none"; download.style.display="none"; hideErr(); logsEl.style.display="none";
@@ -409,7 +399,7 @@ async function generate(){
     {
       const g=silhouette.getContext("2d");
       const src=await loadImg(crop.dataUrl); g.drawImage(src,0,0,512,512);
-      const matte=await loadImg("data:image/png;base64,"+mats.mattePerson_b64);
+      const matte=await loadImg("data:image/png;base64,"+mats.person_mask_b64);
       const matteCrop = cropSquareAroundBBox(matte, mats.bbox, 0.22, 512);
       const mImg=await loadImg(matteCrop.dataUrl);
       g.globalAlpha=0.65; g.drawImage(mImg,0,0);
@@ -431,7 +421,15 @@ async function generate(){
     statusEl.innerText="Шаг 5/6: смена одежды…";
     const bodyMaskFull = await loadImg("data:image/png;base64,"+mats.bodyOnly_mask_b64);
     const bodyMaskCrop512 = cropSquareAroundBBox(bodyMaskFull, mats.bbox, 0.22, 512);
-    const dilatedMask512 = await dilateFeatherMaskDataUrl(bodyMaskCrop512.dataUrl, 10, 12);
+    const dilatedMask512 = await (async ()=>{
+      // лёгкая дилатация и перо для устойчивости маски одежды
+      const tmp=document.createElement("canvas"); tmp.width=512; tmp.height=512;
+      tmp.getContext("2d").drawImage(await loadImg(bodyMaskCrop512.dataUrl),0,0);
+      const grow = morph(tmp, 6, 32);
+      const blurC=document.createElement("canvas"); blurC.width=512; blurC.height=512;
+      const gb=blurC.getContext("2d"); gb.filter="blur(10px)"; gb.drawImage(grow,0,0);
+      return blurC.toDataURL("image/png");
+    })();
     const fdW=new FormData();
     fdW.append("mode","wardrobe-mask");
     fdW.append("image_b64", bodyProxy512.split(",")[1]);
@@ -448,43 +446,44 @@ async function generate(){
     const o512=await loadImg(outfit512); const {x,y,side}=crop.rect; gfull.drawImage(o512, x,y,side,side);
     dataUrl=fullC.toDataURL("image/png"); b64=dataUrl.split(",")[1];
 
-    /* ===== Шаг 6/6: сборка сцены (r13d) ===== */
+    /* ===== Шаг 6/6: сборка сцены (исправлено) ===== */
     const bg = await loadImg(bgUrl);
     const body = await loadImg(dataUrl);
-    const matteP = await loadImg("data:image/png;base64,"+mats.mattePerson_b64);
+    const personMask = await loadImg("data:image/png;base64,"+mats.person_mask_b64);
     const headH = await loadImg("data:image/png;base64,"+mats.headHands_png_b64);
+    const bodyMaskImg = await loadImg("data:image/png;base64,"+mats.bodyOnly_mask_b64);
 
     const comp = document.createElement("canvas"); comp.width = bg.width; comp.height = bg.height;
     const g = comp.getContext("2d");
 
-    // центрирование: двигаем ФОН (cover-масштаб, чтобы не было чёрных полей)
+    // центрирование: двигаем ФОН (cover), чтобы точно покрыть кадр
     const targetCX = bg.width/2;
     const srcCX = mats.bbox.x + mats.bbox.w/2;
     const dx = Math.round(targetCX - srcCX);
     const needPad = Math.abs(dx);
-    const scale = 1 + (needPad*2)/bg.width + 0.04; // небольшой запас
+    const scale = 1 + (needPad*2)/bg.width + 0.04;
     const sw = Math.round(bg.width * scale);
     const sh = Math.round(bg.height * scale);
     const ox = Math.round((sw - bg.width)/2) - dx;
     const oy = Math.round((sh - bg.height)/2);
     g.drawImage(bg, -ox, -oy, sw, sh);
 
-    // маска: inner (резко) + edge (только край с пером)
-    const matteCanvas = document.createElement("canvas");
-    matteCanvas.width = bg.width; matteCanvas.height = bg.height;
-    matteCanvas.getContext("2d").drawImage(matteP,0,0);
-    const inner = morph(matteCanvas, 1.5, 150);
-    const outer = morph(matteCanvas, 10, 10);
-    const edge = document.createElement("canvas"); edge.width=bg.width; edge.height=bg.height;
-    const ge = edge.getContext("2d");
-    ge.drawImage(outer,0,0);
-    ge.globalCompositeOperation="destination-out"; ge.drawImage(inner,0,0);
-    ge.globalCompositeOperation="source-over"; ge.filter="blur(8px)"; ge.drawImage(edge,0,0);
+    // готовим канвасы масок
+    const pm = document.createElement("canvas"); pm.width=bg.width; pm.height=bg.height; pm.getContext("2d").drawImage(personMask,0,0);
+    const hm = document.createElement("canvas"); hm.width=bg.width; hm.height=bg.height; hm.getContext("2d").drawImage(bodyMaskImg,0,0);
 
-    const softMask = document.createElement("canvas"); softMask.width=bg.width; softMask.height=bg.height;
-    const gs = softMask.getContext("2d"); gs.drawImage(inner,0,0); gs.globalCompositeOperation="lighter"; gs.drawImage(edge,0,0);
+    // core/grow/edge для КОРПУСА (без головы/кистей)
+    const core = morph(hm, 2, 200);      // чёткая внутренняя
+    const grow = morph(hm, 14, 16);      // расширенная
+    const edge = subtractMasks(grow, core);
+    const edgeBlur = document.createElement("canvas"); edgeBlur.width=bg.width; edgeBlur.height=bg.height;
+    const geb=edgeBlur.getContext("2d"); geb.filter="blur(9px)"; geb.drawImage(edge,0,0);
 
-    // тело: цвето-матч + локальная резкость ткани
+    // финальная альфа корпуса = core + edgeBlur
+    const finalAlpha = document.createElement("canvas"); finalAlpha.width=bg.width; finalAlpha.height=bg.height;
+    const ga=finalAlpha.getContext("2d"); ga.drawImage(core,0,0); ga.globalCompositeOperation="lighter"; ga.drawImage(edgeBlur,0,0); ga.globalCompositeOperation="source-over";
+
+    // подготовка тела: цвет/резкость под фон (только корпус)
     const bodyAdj = document.createElement("canvas"); bodyAdj.width=body.width; bodyAdj.height=body.height;
     bodyAdj.getContext("2d").drawImage(body,0,0);
 
@@ -496,7 +495,7 @@ async function generate(){
     });
     matchColors(bodyAdj, bgStats);
 
-    // лёгкий unsharp без лица — применим до маски
+    // лёгкий unsharp
     const sharp = document.createElement("canvas");
     sharp.width = bodyAdj.width; sharp.height = bodyAdj.height;
     const gsx = sharp.getContext("2d"); gsx.drawImage(bodyAdj,0,0);
@@ -507,33 +506,33 @@ async function generate(){
     const idBlur = gbx.getImageData(0,0,sharp.width,sharp.height);
     const d = idSrc.data, b = idBlur.data;
     for (let i=0;i<d.length;i+=4){
-      d[i]   = Math.max(0, Math.min(255, d[i]*1.25 - b[i]*0.25));
-      d[i+1] = Math.max(0, Math.min(255, d[i+1]*1.25 - b[i+1]*0.25));
-      d[i+2] = Math.max(0, Math.min(255, d[i+2]*1.25 - b[i+2]*0.25));
+      d[i]   = Math.max(0, Math.min(255, d[i]*1.22 - b[i]*0.22));
+      d[i+1] = Math.max(0, Math.min(255, d[i+1]*1.22 - b[i+1]*0.22));
+      d[i+2] = Math.max(0, Math.min(255, d[i+2]*1.22 - b[i+2]*0.22));
     }
     gsx.putImageData(idSrc,0,0);
     bodyAdj.getContext("2d").drawImage(sharp,0,0);
 
-    // лёгкая коррекция гаммы/контраста под фон
+    // лёгкая коррекция гаммы/контраста
     const gAdj = bodyAdj.getContext("2d");
-    const id = gAdj.getImageData(0,0,bodyAdj.width,bodyAdj.height);
-    const p = id.data;
+    const iid = gAdj.getImageData(0,0,bodyAdj.width,bodyAdj.height);
+    const p = iid.data;
     for (let i=0;i<p.length;i+=4){
       for (let c=0;c<3;c++){
         let v = p[i+c]/255;
-        v = Math.pow(v, 0.95);     // чуть светлее
-        v = (v-0.5)*1.06 + 0.5;    // мягкий контраст
+        v = Math.pow(v, 0.96);
+        v = (v-0.5)*1.05 + 0.5;
         p[i+c] = Math.max(0, Math.min(255, v*255));
       }
     }
-    gAdj.putImageData(id,0,0);
+    gAdj.putImageData(iid,0,0);
 
-    // применяем мягкую альфу
+    // применяем альфу корпуса
     const bodySoft = document.createElement("canvas"); bodySoft.width=bg.width; bodySoft.height=bg.height;
-    const gb = bodySoft.getContext("2d"); gb.drawImage(bodyAdj,0,0);
-    gb.globalCompositeOperation = "destination-in"; gb.drawImage(softMask,0,0); gb.globalCompositeOperation = "source-over";
+    const gbod = bodySoft.getContext("2d"); gbod.drawImage(bodyAdj,0,0);
+    gbod.globalCompositeOperation="destination-in"; gbod.drawImage(finalAlpha,0,0); gbod.globalCompositeOperation="source-over";
 
-    // корпус + голова/кисти поверх (без смещений)
+    // рисуем: корпус → голова/кисти (резко)
     g.drawImage(bodySoft, 0, 0);
     g.drawImage(headH, 0, 0);
 
@@ -542,7 +541,7 @@ async function generate(){
     outUrl = await composeLogoOver(outUrl);
 
     resultImg.src=outUrl; resultBox.style.display="block"; download.href=outUrl; download.style.display="inline-block";
-    statusEl.innerText="Готово ✓ · шея непрерывная, край мягкий, фон покрывает кадр";
+    statusEl.innerText="Готово ✓ · ровная шея, чёткий корпус, без наложений";
   }catch(e){
     showErr(e.message||"Неизвестная ошибка");
   }

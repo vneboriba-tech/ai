@@ -145,7 +145,7 @@ async function resizeFile(f){
   return {w,h, dataUrl:out, b64:out.split(",")[1]};
 }
 
-/* ======= утилиты масок/кропов/смешивания ======= */
+/* ======= утилиты масок/кропов/цвета ======= */
 function binarizeAlpha(canvas, thr=128){
   const w=canvas.width, h=canvas.height;
   const g=canvas.getContext("2d");
@@ -260,6 +260,7 @@ async function buildMattesAndBBox(dataUrl){
 
   const HEAD=new Set([0,1]); const ARMS=new Set([2,3,4,5]);
 
+  // base mask
   const baseMask=document.createElement("canvas"); baseMask.width=w; baseMask.height=h;
   {
     const g=baseMask.getContext("2d");
@@ -275,6 +276,7 @@ async function buildMattesAndBBox(dataUrl){
   const mattePersonCanvas=document.createElement("canvas"); mattePersonCanvas.width=w; mattePersonCanvas.height=h;
   mattePersonCanvas.getContext("2d").drawImage(closedDilated,0,0);
 
+  // head+hands
   const hhMask=document.createElement("canvas"); hhMask.width=w; hhMask.height=h;
   {
     const g=hhMask.getContext("2d"); const id=g.createImageData(w,h);
@@ -282,6 +284,15 @@ async function buildMattesAndBBox(dataUrl){
     g.putImageData(id,0,0);
     const b=document.createElement("canvas"); b.width=w;b.height=h; const gb=b.getContext("2d"); gb.filter="blur(6px)"; gb.drawImage(hhMask,0,0);
     hhMask.width=w; hhMask.height=h; hhMask.getContext("2d").drawImage(b,0,0);
+
+    // ШЕЙНЫЙ МОСТИК — тонкая вставка для непрерывности лица->шея
+    const nx = Math.round(bbox.x + bbox.w * 0.48);
+    const ny = Math.round(bbox.y + bbox.h * 0.35);
+    const nw = Math.round(bbox.w * 0.04);
+    const nh = Math.round(bbox.h * 0.10);
+    const g2 = hhMask.getContext("2d");
+    g2.fillStyle = "rgba(255,255,255,0.95)";
+    g2.fillRect(nx, ny, nw, nh);
   }
 
   const base=await loadImg(dataUrl);
@@ -298,6 +309,7 @@ async function buildMattesAndBBox(dataUrl){
     bodyMaskCanvas.width=w; bodyMaskCanvas.height=h; bodyMaskCanvas.getContext("2d").drawImage(b,0,0);
   }
 
+  // широкая «резервная» маска под человека
   const reserve=document.createElement("canvas"); reserve.width=w; reserve.height=h; const gr=reserve.getContext("2d");
   gr.fillStyle="#000"; gr.fillRect(0,0,w,h); gr.fillStyle="#fff";
   const r=Math.max(bbox.w,bbox.h)*0.16;
@@ -318,16 +330,20 @@ async function buildMattesAndBBox(dataUrl){
   };
 }
 
+/* ===== Prompts (реалистичные) ===== */
 function bgPrompt(role){
-  if (role==="журналист") return "modern TV newsroom: broadcast cameras, boom mics, glass anchor desk, LED video wall with abstract news graphics; cinematic editorial lighting; photorealistic; no readable text";
-  if (role==="блогер")    return "trendy creator studio: ring light, green screen, camera on tripod, softboxes, colorful LED accents; cozy décor; photorealistic; no readable text";
-  if (role==="фотограф")  return "professional photo studio: backdrop rolls, C-stands, softboxes, light stands, camera gear; moody studio lighting; photorealistic; no readable text";
-  return "neutral professional studio background; photorealistic; no text";
+  if (role==="журналист")
+    return "broadcast newsroom, glass anchor desk, cameras and boom mics, LED video wall with abstract news graphics, ceiling light panels with soft falloff, subtle floor reflections, shallow depth of field, photographic noise, correct perspective lines; photorealistic; no readable text";
+  if (role==="блогер")
+    return "creator studio, ring light, softboxes, green screen, tripod camera, cozy décor, shelves with props, shallow depth of field, photographic noise, correct perspective; photorealistic; no readable text";
+  if (role==="фотограф")
+    return "professional photo studio, backdrop rolls, C-stands, light stands, softboxes, cables, realistic shadows, slight lens falloff, photographic noise, correct perspective; photorealistic; no readable text";
+  return "neutral professional studio background, photographic noise, realistic lighting; no text";
 }
 function outfitPrompt(role){
-  if (role==="журналист") return "update ONLY clothing to smart-casual journalist style: blazer or tailored jacket in neutral tones; keep same person and identity; photorealistic";
-  if (role==="блогер")    return "update ONLY clothing to stylish casual blogger style: light hoodie or tee, denim or relaxed trousers; keep same person and identity; photorealistic";
-  if (role==="фотограф")  return "update ONLY clothing to practical photographer style: dark utility vest or jacket; keep same person and identity; photorealistic";
+  if (role==="журналист") return "update ONLY clothing to smart-casual journalist style: tailored blazer in neutral tones, optional lapel mic; keep the same person and identity; photorealistic";
+  if (role==="блогер")    return "update ONLY clothing to stylish casual blogger style: light hoodie or tee, relaxed trousers; keep the same person and identity; photorealistic";
+  if (role==="фотограф")  return "update ONLY clothing to practical photographer style: dark utility vest or jacket; keep the same person and identity; photorealistic";
   return "subtle outfit update; keep identity";
 }
 
@@ -432,7 +448,7 @@ async function generate(){
     const o512=await loadImg(outfit512); const {x,y,side}=crop.rect; gfull.drawImage(o512, x,y,side,side);
     dataUrl=fullC.toDataURL("image/png"); b64=dataUrl.split(",")[1];
 
-    /* ===== Шаг 6/6: сборка сцены (r13c) ===== */
+    /* ===== Шаг 6/6: сборка сцены (r13d) ===== */
     const bg = await loadImg(bgUrl);
     const body = await loadImg(dataUrl);
     const matteP = await loadImg("data:image/png;base64,"+mats.mattePerson_b64);
@@ -441,27 +457,37 @@ async function generate(){
     const comp = document.createElement("canvas"); comp.width = bg.width; comp.height = bg.height;
     const g = comp.getContext("2d");
 
-    // центрирование: двигаем ФОН
+    // центрирование: двигаем ФОН (cover-масштаб, чтобы не было чёрных полей)
     const targetCX = bg.width/2;
     const srcCX = mats.bbox.x + mats.bbox.w/2;
     const dx = Math.round(targetCX - srcCX);
+    const needPad = Math.abs(dx);
+    const scale = 1 + (needPad*2)/bg.width + 0.04; // небольшой запас
+    const sw = Math.round(bg.width * scale);
+    const sh = Math.round(bg.height * scale);
+    const ox = Math.round((sw - bg.width)/2) - dx;
+    const oy = Math.round((sh - bg.height)/2);
+    g.drawImage(bg, -ox, -oy, sw, sh);
 
-    // фон со сдвигом
-    g.drawImage(bg, -dx, 0);
-
-    // мягкая маска (перо)
-    const softMask = document.createElement("canvas"); softMask.width = bg.width; softMask.height = bg.height;
-    const gsm = softMask.getContext("2d");
-    // слегка ужимаем маску, чтобы убрать ореол
-    const matteCanvas = document.createElement("canvas"); matteCanvas.width = bg.width; matteCanvas.height = bg.height;
+    // маска: inner (резко) + edge (только край с пером)
+    const matteCanvas = document.createElement("canvas");
+    matteCanvas.width = bg.width; matteCanvas.height = bg.height;
     matteCanvas.getContext("2d").drawImage(matteP,0,0);
-    const inner = morph(matteCanvas, 2, 140);
-    gsm.filter = "blur(12px)";
-    gsm.drawImage(inner, 0, 0);
+    const inner = morph(matteCanvas, 1.5, 150);
+    const outer = morph(matteCanvas, 10, 10);
+    const edge = document.createElement("canvas"); edge.width=bg.width; edge.height=bg.height;
+    const ge = edge.getContext("2d");
+    ge.drawImage(outer,0,0);
+    ge.globalCompositeOperation="destination-out"; ge.drawImage(inner,0,0);
+    ge.globalCompositeOperation="source-over"; ge.filter="blur(8px)"; ge.drawImage(edge,0,0);
 
-    // цвето-матчинг по уже сдвинутому фону
-    const bodyAdj = document.createElement("canvas"); bodyAdj.width = body.width; bodyAdj.height = body.height;
-    bodyAdj.getContext("2d").drawImage(body, 0, 0);
+    const softMask = document.createElement("canvas"); softMask.width=bg.width; softMask.height=bg.height;
+    const gs = softMask.getContext("2d"); gs.drawImage(inner,0,0); gs.globalCompositeOperation="lighter"; gs.drawImage(edge,0,0);
+
+    // тело: цвето-матч + локальная резкость ткани
+    const bodyAdj = document.createElement("canvas"); bodyAdj.width=body.width; bodyAdj.height=body.height;
+    bodyAdj.getContext("2d").drawImage(body,0,0);
+
     const bgStats = statsRGB(comp, {
       x: Math.max(0, mats.bbox.x - 20),
       y: Math.max(0, mats.bbox.y - 20),
@@ -470,14 +496,44 @@ async function generate(){
     });
     matchColors(bodyAdj, bgStats);
 
-    // применяем мягкую альфу
-    const bodySoft = document.createElement("canvas"); bodySoft.width = bg.width; bodySoft.height = bg.height;
-    const gb = bodySoft.getContext("2d"); gb.drawImage(bodyAdj, 0, 0);
-    gb.globalCompositeOperation = "destination-in";
-    gb.drawImage(softMask, 0, 0);
-    gb.globalCompositeOperation = "source-over";
+    // лёгкий unsharp без лица — применим до маски
+    const sharp = document.createElement("canvas");
+    sharp.width = bodyAdj.width; sharp.height = bodyAdj.height;
+    const gsx = sharp.getContext("2d"); gsx.drawImage(bodyAdj,0,0);
+    const blur = document.createElement("canvas");
+    blur.width = bodyAdj.width; blur.height = bodyAdj.height;
+    const gbx = blur.getContext("2d"); gbx.filter = "blur(2px)"; gbx.drawImage(bodyAdj,0,0);
+    const idSrc = gsx.getImageData(0,0,sharp.width,sharp.height);
+    const idBlur = gbx.getImageData(0,0,sharp.width,sharp.height);
+    const d = idSrc.data, b = idBlur.data;
+    for (let i=0;i<d.length;i+=4){
+      d[i]   = Math.max(0, Math.min(255, d[i]*1.25 - b[i]*0.25));
+      d[i+1] = Math.max(0, Math.min(255, d[i+1]*1.25 - b[i+1]*0.25));
+      d[i+2] = Math.max(0, Math.min(255, d[i+2]*1.25 - b[i+2]*0.25));
+    }
+    gsx.putImageData(idSrc,0,0);
+    bodyAdj.getContext("2d").drawImage(sharp,0,0);
 
-    // рисуем корпус и голову/кисти (координаты без смещения)
+    // лёгкая коррекция гаммы/контраста под фон
+    const gAdj = bodyAdj.getContext("2d");
+    const id = gAdj.getImageData(0,0,bodyAdj.width,bodyAdj.height);
+    const p = id.data;
+    for (let i=0;i<p.length;i+=4){
+      for (let c=0;c<3;c++){
+        let v = p[i+c]/255;
+        v = Math.pow(v, 0.95);     // чуть светлее
+        v = (v-0.5)*1.06 + 0.5;    // мягкий контраст
+        p[i+c] = Math.max(0, Math.min(255, v*255));
+      }
+    }
+    gAdj.putImageData(id,0,0);
+
+    // применяем мягкую альфу
+    const bodySoft = document.createElement("canvas"); bodySoft.width=bg.width; bodySoft.height=bg.height;
+    const gb = bodySoft.getContext("2d"); gb.drawImage(bodyAdj,0,0);
+    gb.globalCompositeOperation = "destination-in"; gb.drawImage(softMask,0,0); gb.globalCompositeOperation = "source-over";
+
+    // корпус + голова/кисти поверх (без смещений)
     g.drawImage(bodySoft, 0, 0);
     g.drawImage(headH, 0, 0);
 
@@ -486,7 +542,7 @@ async function generate(){
     outUrl = await composeLogoOver(outUrl);
 
     resultImg.src=outUrl; resultBox.style.display="block"; download.href=outUrl; download.style.display="inline-block";
-    statusEl.innerText="Готово ✓ · мягкий незаметный край, цвет под фон, центрирование через фон";
+    statusEl.innerText="Готово ✓ · шея непрерывная, край мягкий, фон покрывает кадр";
   }catch(e){
     showErr(e.message||"Неизвестная ошибка");
   }

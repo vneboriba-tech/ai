@@ -156,7 +156,7 @@ function binarizeAlpha(canvas, thr=128){
   }
   g.putImageData(id,0,0); return canvas;
 }
-// <<< FIX: добавлена функция morph()
+// morph = blur + threshold (эрозия/дилатация по альфе)
 function morph(maskCanvas, blurPx = 4, thr = 128) {
   const w = maskCanvas.width, h = maskCanvas.height;
   const c = document.createElement("canvas"); c.width = w; c.height = h;
@@ -208,53 +208,6 @@ function dilateFeatherMaskDataUrl(maskDataUrl, radius=10, blur=12){
     res(out.toDataURL("image/png"));
   });
 }
-function gaussianBlur(canvas, r){
-  const w=canvas.width, h=canvas.height;
-  const c=document.createElement("canvas"); c.width=w; c.height=h;
-  const g=c.getContext("2d"); g.filter=`blur(${r}px)`; g.drawImage(canvas,0,0);
-  return c;
-}
-function buildPyramid(canvas, levels=3){
-  const pyr=[canvas];
-  for(let i=1;i<levels;i++){
-    const prev=pyr[i-1], w=Math.max(1, prev.width>>1), h=Math.max(1, prev.height>>1);
-    const c=document.createElement("canvas"); c.width=w; c.height=h;
-    const g=c.getContext("2d"); g.drawImage(prev,0,0,prev.width,prev.height, 0,0,w,h);
-    pyr.push(c);
-  }
-  return pyr.map((c,i)=> gaussianBlur(c, Math.max(1, 4-i*1.5)));
-}
-function blendPyramid(fgPyr, bgPyr, maskPyr){
-  const levels=fgPyr.length;
-  let comp = bgPyr[levels-1];
-  for(let i=levels-2;i>=0;i--){
-    const w=bgPyr[i].width, h=bgPyr[i].height;
-    const c=document.createElement("canvas"); c.width=w; c.height=h;
-    const g=c.getContext("2d");
-    const up=document.createElement("canvas"); up.width=w; up.height=h;
-    up.getContext("2d").drawImage(comp,0,0,comp.width,comp.height,0,0,w,h);
-
-    g.drawImage(bgPyr[i],0,0);
-    const m=maskPyr[i];
-
-    const masked=document.createElement("canvas"); masked.width=w; masked.height=h;
-    const gm=masked.getContext("2d"); gm.drawImage(fgPyr[i],0,0); gm.globalCompositeOperation="destination-in"; gm.drawImage(m,0,0);
-
-    const inv=document.createElement("canvas"); inv.width=w; inv.height=h;
-    const gi=inv.getContext("2d"); gi.drawImage(bgPyr[i],0,0); gi.globalCompositeOperation="destination-out"; gi.drawImage(m,0,0);
-
-    g.clearRect(0,0,w,h);
-    g.drawImage(inv,0,0); g.drawImage(masked,0,0);
-    g.globalAlpha=0.5; g.drawImage(up,0,0); g.globalAlpha=1.0;
-    comp=c;
-  }
-  return comp;
-}
-function makeFeatherPair(matteCanvas, innerShrink=3, outerGrow=14){
-  const inner = morph(matteCanvas, innerShrink, 140);
-  const outer = morph(matteCanvas, outerGrow, 20);
-  return { inner, outer };
-}
 function statsRGB(canvas, rect){
   const {x,y,w,h} = rect;
   const g=canvas.getContext("2d");
@@ -285,7 +238,7 @@ function matchColors(srcCanvas, targetStats){
 }
 /* ============================================ */
 
-/* матты + bbox (улучшенные) */
+/* матты + bbox */
 async function buildMattesAndBBox(dataUrl){
   await Promise.all([loadBP(), loadPose()]);
   const img=await loadImg(dataUrl); const w=img.width,h=img.height;
@@ -307,7 +260,6 @@ async function buildMattesAndBBox(dataUrl){
 
   const HEAD=new Set([0,1]); const ARMS=new Set([2,3,4,5]);
 
-  // base BodyPix mask -> canvas
   const baseMask=document.createElement("canvas"); baseMask.width=w; baseMask.height=h;
   {
     const g=baseMask.getContext("2d");
@@ -315,17 +267,14 @@ async function buildMattesAndBBox(dataUrl){
     for(let i=0;i<w*h;i++) id.data[i*4+3]=(person.data[i]===1)?255:0;
     g.putImageData(id,0,0);
   }
-  // union с hull -> закрытие дыр -> лёгкая дилатация
   const hull = poseHullMask(w,h,kp);
   const union=document.createElement("canvas"); union.width=w; union.height=h;
   { const g=union.getContext("2d"); g.drawImage(baseMask,0,0); g.globalCompositeOperation="lighter"; g.drawImage(hull,0,0); g.globalCompositeOperation="source-over"; }
   const closed = closeMask(union, 8, 32);
   const closedDilated = closeMask(closed, 4, 8);
-
   const mattePersonCanvas=document.createElement("canvas"); mattePersonCanvas.width=w; mattePersonCanvas.height=h;
   mattePersonCanvas.getContext("2d").drawImage(closedDilated,0,0);
 
-  // head+hands
   const hhMask=document.createElement("canvas"); hhMask.width=w; hhMask.height=h;
   {
     const g=hhMask.getContext("2d"); const id=g.createImageData(w,h);
@@ -349,7 +298,6 @@ async function buildMattesAndBBox(dataUrl){
     bodyMaskCanvas.width=w; bodyMaskCanvas.height=h; bodyMaskCanvas.getContext("2d").drawImage(b,0,0);
   }
 
-  // reserve mask (шире)
   const reserve=document.createElement("canvas"); reserve.width=w; reserve.height=h; const gr=reserve.getContext("2d");
   gr.fillStyle="#000"; gr.fillRect(0,0,w,h); gr.fillStyle="#fff";
   const r=Math.max(bbox.w,bbox.h)*0.16;
@@ -484,62 +432,61 @@ async function generate(){
     const o512=await loadImg(outfit512); const {x,y,side}=crop.rect; gfull.drawImage(o512, x,y,side,side);
     dataUrl=fullC.toDataURL("image/png"); b64=dataUrl.split(",")[1];
 
-    statusEl.innerText="Шаг 6/6: сборка сцены…";
-    const bg=await loadImg(bgUrl);
-    const body=await loadImg(dataUrl);
-    const matteP=await loadImg("data:image/png;base64,"+mats.mattePerson_b64);
-    const headH=await loadImg("data:image/png;base64,"+mats.headHands_png_b64);
+    /* ===== Шаг 6/6: сборка сцены (r13c) ===== */
+    const bg = await loadImg(bgUrl);
+    const body = await loadImg(dataUrl);
+    const matteP = await loadImg("data:image/png;base64,"+mats.mattePerson_b64);
+    const headH = await loadImg("data:image/png;base64,"+mats.headHands_png_b64);
 
-    const comp=document.createElement("canvas"); comp.width=bg.width; comp.height=bg.height;
-    const g=comp.getContext("2d");
+    const comp = document.createElement("canvas"); comp.width = bg.width; comp.height = bg.height;
+    const g = comp.getContext("2d");
 
-    // центрирование по X
+    // центрирование: двигаем ФОН
     const targetCX = bg.width/2;
     const srcCX = mats.bbox.x + mats.bbox.w/2;
     const dx = Math.round(targetCX - srcCX);
 
-    // фон
-    g.drawImage(bg,0,0);
+    // фон со сдвигом
+    g.drawImage(bg, -dx, 0);
 
-    // мягкие маски + пирамидное смешивание + цветовой матч
-    const matteCanvas=document.createElement("canvas"); matteCanvas.width=bg.width; matteCanvas.height=bg.height;
+    // мягкая маска (перо)
+    const softMask = document.createElement("canvas"); softMask.width = bg.width; softMask.height = bg.height;
+    const gsm = softMask.getContext("2d");
+    // слегка ужимаем маску, чтобы убрать ореол
+    const matteCanvas = document.createElement("canvas"); matteCanvas.width = bg.width; matteCanvas.height = bg.height;
     matteCanvas.getContext("2d").drawImage(matteP,0,0);
-    const { inner, outer } = makeFeatherPair(matteCanvas, 3, 14);
+    const inner = morph(matteCanvas, 2, 140);
+    gsm.filter = "blur(12px)";
+    gsm.drawImage(inner, 0, 0);
 
-    // пирамида масок
-    function makeMaskPyramid(outerFeather, innerFeather, levels=3){
-      const baseW=outerFeather.width, baseH=outerFeather.height;
-      const grad=document.createElement("canvas"); grad.width=baseW; grad.height=baseH;
-      const gg=grad.getContext("2d");
-      gg.drawImage(outerFeather,0,0);
-      gg.globalCompositeOperation="destination-out";
-      gg.drawImage(innerFeather,0,0);
-      gg.globalCompositeOperation="source-over";
-      const soft = gaussianBlur(grad, 6);
-      return buildPyramid(soft, levels);
-    }
-    const maskPyr = makeMaskPyramid(outer, inner, 3);
-
-    const bodyAdj=document.createElement("canvas"); bodyAdj.width=body.width; bodyAdj.height=body.height;
-    bodyAdj.getContext("2d").drawImage(body,0,0);
-    const bgStats = statsRGB(comp, { x: Math.max(0, mats.bbox.x + dx - 20), y: Math.max(0, mats.bbox.y - 20), w: mats.bbox.w + 40, h: mats.bbox.h + 40 });
+    // цвето-матчинг по уже сдвинутому фону
+    const bodyAdj = document.createElement("canvas"); bodyAdj.width = body.width; bodyAdj.height = body.height;
+    bodyAdj.getContext("2d").drawImage(body, 0, 0);
+    const bgStats = statsRGB(comp, {
+      x: Math.max(0, mats.bbox.x - 20),
+      y: Math.max(0, mats.bbox.y - 20),
+      w: mats.bbox.w + 40,
+      h: mats.bbox.h + 40
+    });
     matchColors(bodyAdj, bgStats);
 
-    const bodyPyr   = buildPyramid(bodyAdj, 3);
-    const bgPyr     = buildPyramid(comp, 3);
-    const blended   = blendPyramid(bodyPyr, bgPyr, maskPyr);
+    // применяем мягкую альфу
+    const bodySoft = document.createElement("canvas"); bodySoft.width = bg.width; bodySoft.height = bg.height;
+    const gb = bodySoft.getContext("2d"); gb.drawImage(bodyAdj, 0, 0);
+    gb.globalCompositeOperation = "destination-in";
+    gb.drawImage(softMask, 0, 0);
+    gb.globalCompositeOperation = "source-over";
 
-    g.clearRect(0,0,comp.width,comp.height);
-    g.drawImage(bg,0,0);
-    g.drawImage(blended, dx, 0);
-    g.drawImage(headH, dx, 0);
+    // рисуем корпус и голову/кисти (координаты без смещения)
+    g.drawImage(bodySoft, 0, 0);
+    g.drawImage(headH, 0, 0);
 
     let outUrl = comp.toDataURL("image/png");
-    outUrl = await addContactShadow(outUrl, { ...mats.bbox, x: mats.bbox.x + dx });
+    outUrl = await addContactShadow(outUrl, mats.bbox);
     outUrl = await composeLogoOver(outUrl);
 
     resultImg.src=outUrl; resultBox.style.display="block"; download.href=outUrl; download.style.display="inline-block";
-    statusEl.innerText="Готово ✓ · невидимая граница, цвет под фон, центрирование";
+    statusEl.innerText="Готово ✓ · мягкий незаметный край, цвет под фон, центрирование через фон";
   }catch(e){
     showErr(e.message||"Неизвестная ошибка");
   }

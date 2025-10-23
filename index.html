@@ -16,10 +16,7 @@
     .uploader { position:relative; border:2px dashed var(--border); border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
     .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
     .uploader img.logo { width:72px; height:72px; margin-bottom:12px; pointer-events:none; }
-    .uploader input[type=file]{
-      position:absolute; inset:0; width:100%; height:100%;
-      opacity:0; cursor:pointer; display:block;
-    }
+    .uploader input[type=file]{ position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; display:block; }
     .headline { font-weight:700; font-size:18px; pointer-events:none; }
     .sub { color:var(--muted); font-size:14px; margin-top:6px; pointer-events:none; }
     .picked { margin-top:10px; font-size:14px; }
@@ -54,7 +51,6 @@
       <img src="logo.png" alt="Логотип" class="logo" onerror="this.style.display='none'">
       <div class="headline">Загрузите фото</div>
       <div class="sub">JPG, PNG, WEBP до 12 МБ</div>
-      <!-- инпут больше НЕ скрываем -->
       <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" />
       <div id="picked" class="picked"></div>
     </div>
@@ -109,7 +105,6 @@ function hideErr(){ errEl.style.display="none"; errEl.innerText=""; }
 function log(o){ try{ logsEl.style.display="block"; logsEl.textContent=typeof o==="string"?o:JSON.stringify(o,null,2);}catch{} }
 function fetchTO(url, init={}, ms=120000){ const c=new AbortController(); const id=setTimeout(()=>c.abort(),ms); return fetch(url,{...init,signal:c.signal}).finally(()=>clearTimeout(id)); }
 
-// Больше НЕ вызываем input.click(); инпут кликается сам (поверх зоны)
 drop.addEventListener("dragover",e=>e.preventDefault());
 drop.addEventListener("drop",e=>{e.preventDefault();const f=e.dataTransfer.files?.[0];if(f)handleFile(f);});
 input.addEventListener("change",e=>handleFile(e.target.files?.[0]));
@@ -431,9 +426,9 @@ async function generate(){
     const dilatedMask512 = await (async ()=>{
       const tmp=document.createElement("canvas"); tmp.width=512; tmp.height=512;
       tmp.getContext("2d").drawImage(await loadImg(bodyMaskCrop512.dataUrl),0,0);
-      const grow = morph(tmp, 6, 32);
+      const grow = morph(tmp, 4, 48);           // мягче и точнее
       const blurC=document.createElement("canvas"); blurC.width=512; blurC.height=512;
-      const gb=blurC.getContext("2d"); gb.filter="blur(10px)"; gb.drawImage(grow,0,0);
+      const gb=blurC.getContext("2d"); gb.filter="blur(6px)"; gb.drawImage(grow,0,0);
       return blurC.toDataURL("image/png");
     })();
     const fdW=new FormData();
@@ -452,7 +447,7 @@ async function generate(){
     const o512=await loadImg(outfit512); const {x,y,side}=crop.rect; gfull.drawImage(o512, x,y,side,side);
     dataUrl=fullC.toDataURL("image/png"); b64=dataUrl.split(",")[1];
 
-    /* ===== Шаг 6/6: сборка сцены ===== */
+    /* ===== Шаг 6/6: сборка сцены (фикс ядра) ===== */
     const bg = await loadImg(bgUrl);
     const body = await loadImg(dataUrl);
     const headH = await loadImg("data:image/png;base64,"+mats.headHands_png_b64);
@@ -461,7 +456,7 @@ async function generate(){
     const comp = document.createElement("canvas"); comp.width = bg.width; comp.height = bg.height;
     const g = comp.getContext("2d");
 
-    // центрирование: двигаем ФОН (cover) без чёрных полей
+    // центрирование: фон cover, без чёрных полей
     const targetCX = bg.width/2;
     const srcCX = mats.bbox.x + mats.bbox.w/2;
     const dx = Math.round(targetCX - srcCX);
@@ -473,17 +468,31 @@ async function generate(){
     const oy = Math.round((sh - bg.height)/2);
     g.drawImage(bg, -ox, -oy, sw, sh);
 
-    // корпус: core + edge blur (перо только по краю)
+    // корпус: ядро + край (перо по краю)
     const hm = document.createElement("canvas"); hm.width=bg.width; hm.height=bg.height; hm.getContext("2d").drawImage(bodyMaskImg,0,0);
-    const core = morph(hm, 2, 200);
-    const grow = morph(hm, 14, 16);
+    const core = morph(hm, 1.5, 128);     // мягкое, не «съедает» фигуру
+    const grow = morph(hm, 10, 12);
     const edge = subtractMasks(grow, core);
     const edgeBlur = document.createElement("canvas"); edgeBlur.width=bg.width; edgeBlur.height=bg.height;
-    const geb=edgeBlur.getContext("2d"); geb.filter="blur(9px)"; geb.drawImage(edge,0,0);
+    const geb=edgeBlur.getContext("2d"); geb.filter="blur(7px)"; geb.drawImage(edge,0,0);
+
     const finalAlpha = document.createElement("canvas"); finalAlpha.width=bg.width; finalAlpha.height=bg.height;
     const ga=finalAlpha.getContext("2d"); ga.drawImage(core,0,0); ga.globalCompositeOperation="lighter"; ga.drawImage(edgeBlur,0,0); ga.globalCompositeOperation="source-over";
 
-    // подготовка тела: цвет/резкость
+    // fallback: если альфа почти пустая
+    (function ensureAlphaNotEmpty(){
+      const gfa = finalAlpha.getContext("2d");
+      const id = gfa.getImageData(0,0,finalAlpha.width,finalAlpha.height);
+      let nz = 0;
+      for (let i=3;i<id.data.length;i+=4){ if (id.data[i] > 12) { nz++; if (nz>5000) break; } }
+      if (nz <= 5000){
+        const safe = document.createElement("canvas"); safe.width=hm.width; safe.height=hm.height;
+        const gs = safe.getContext("2d"); gs.filter="blur(2px)"; gs.drawImage(hm,0,0);
+        gfa.clearRect(0,0,finalAlpha.width,finalAlpha.height); gfa.drawImage(safe,0,0);
+      }
+    })();
+
+    // подготовка тела: цвет/резкость под фон
     const bodyAdj = document.createElement("canvas"); bodyAdj.width=body.width; bodyAdj.height=body.height;
     bodyAdj.getContext("2d").drawImage(body,0,0);
 
@@ -513,7 +522,7 @@ async function generate(){
     gsx.putImageData(idSrc,0,0);
     bodyAdj.getContext("2d").drawImage(sharp,0,0);
 
-    // лёгкая коррекция гаммы/контраста
+    // гамма/контраст слегка
     const gAdj = bodyAdj.getContext("2d");
     const iid = gAdj.getImageData(0,0,bodyAdj.width,bodyAdj.height);
     const p = iid.data;
@@ -540,7 +549,7 @@ async function generate(){
     outUrl = await composeLogoOver(outUrl);
 
     resultImg.src=outUrl; resultBox.style.display="block"; download.href=outUrl; download.style.display="inline-block";
-    statusEl.innerText="Готово ✓ · ровная шея, чёткий корпус, без наложений";
+    statusEl.innerText="Готово ✓ · корпус вернулся, край мягкий, без ореола";
   }catch(e){
     showErr(e.message||"Неизвестная ошибка");
   }

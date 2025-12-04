@@ -146,12 +146,32 @@ function handleFile(f){
 }
 
 async function resizeFile(f){
-  const du=await new Promise((res,rej)=>{const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f);});
-  const im=await loadImg(du); let w=im.width,h=im.height,k=Math.max(w,h)>MAX_SIZE?MAX_SIZE/Math.max(w,h):1;
-  w=Math.round(w*k); h=Math.round(h*k);
-  const c=document.createElement("canvas"); c.width=w; c.height=h; c.getContext("2d").drawImage(im,0,0,w,h);
-  const out=c.toDataURL("image/jpeg",0.92);
-  return {w,h, dataUrl:out, b64:out.split(",")[1]};
+  // читаем файл
+  const du = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(f);
+  });
+
+  const im = await loadImg(du);
+
+  // рисуем как background-size: cover в 720x1280
+  const c = document.createElement("canvas");
+  c.width = CANVAS_W;
+  c.height = CANVAS_H;
+  const g = c.getContext("2d");
+
+  const scale = Math.max(CANVAS_W / im.width, CANVAS_H / im.height);
+  const newW = im.width * scale;
+  const newH = im.height * scale;
+  const dx = (CANVAS_W - newW) / 2;
+  const dy = (CANVAS_H - newH) / 2;
+
+  g.drawImage(im, dx, dy, newW, newH);
+
+  const out = c.toDataURL("image/jpeg", 0.92);
+  return { w: CANVAS_W, h: CANVAS_H, dataUrl: out, b64: out.split(",")[1] };
 }
 
 /* ===== Mask/Color helpers ===== */

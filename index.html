@@ -385,14 +385,38 @@ async function generate(){
     statusEl.innerText="Шаг 1/6: анализ позы и сегментация…";
     const mats = await buildMattesAndBBox(dataUrl);
 
-    statusEl.innerText="Шаг 2/6: генерация фона…";
-    let fd=new FormData();
-    fd.append("mode","gen-bg"); fd.append("width", String(w)); fd.append("height", String(h));
-    fd.append("num_steps", String(BG_STEPS)); fd.append("prompt", bgPromptVariants(role));
-    let r=await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
-    let j=JSON.parse(await r.text());
-    if (!r.ok || !j.imageBase64) return showErr(j?.error||"Не удалось создать фон");
-    let bgUrl="data:image/png;base64,"+j.imageBase64;
+   statusEl.innerText = "Шаг 2/6: генерация фона…";
+let fd = new FormData();
+fd.append("mode", "gen-bg");
+fd.append("width", String(w));
+fd.append("height", String(h));
+fd.append("num_steps", String(BG_STEPS));
+fd.append("prompt", bgPromptVariants(role));
+
+let r = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fd }, 120000);
+
+// читаем сырой текст ответа
+let raw = await r.text();
+let j;
+try {
+  j = JSON.parse(raw);
+} catch (e) {
+  j = { raw };
+}
+
+// пишем всё в лог, чтобы видеть error + details
+log({ stage: "gen-bg", status: r.status, resp: j });
+
+// если ошибка — показываем и error, и details (если есть)
+if (!r.ok || !j.imageBase64) {
+  const msg =
+    (j.error || "Не удалось создать фон") +
+    (j.details ? "\n" + j.details : "");
+  return showErr(msg);
+}
+
+// если всё хорошо — собираем data URL
+let bgUrl = "data:image/png;base64," + j.imageBase64;
 
     statusEl.innerText="Шаг 3/6: подчистка фона под человека…";
     fd=new FormData();

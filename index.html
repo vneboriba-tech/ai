@@ -488,27 +488,6 @@ async function generate(){
       fr.onerror = () => reject(fr.error || new Error("FileReader error"));
       fr.readAsDataURL(blob);
     });
-
-    // === Шаг 3/6: подчистка фона через инпейнт ===
-    statusEl.innerText = "Шаг 3/6: подчистка фона под человека…";
-
-    let fd2 = new FormData();
-    fd2.append("mode", "bg-inpaint");
-    fd2.append("image_b64", bgUrl.split(",")[1]);
-    fd2.append("mask_b64", mats.reserve_mask_b64);
-    fd2.append("prompt", "keep background consistent and clean space for a standing person; photorealistic; no text");
-
-    let r2 = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fd2 }, 120000);
-    let text2 = await r2.text();
-    let j2;
-    try { j2 = JSON.parse(text2); } catch { j2 = { raw: text2 }; }
-
-    log({ stage: "bg-inpaint", status: r2.status, resp: j2 });
-
-    if (r2.ok && j2.imageBase64) {
-      bgUrl = "data:image/png;base64," + j2.imageBase64;
-    }
-
     // === Шаг 4/6: построение манекена (body-proxy) ===
     statusEl.innerText = "Шаг 4/6: построение манекена…";
     const fullImg = await loadImg(dataUrl);
@@ -527,17 +506,17 @@ async function generate(){
     fdBP.append("image_b64", silhouette.toDataURL("image/png").split(",")[1]);
     fdBP.append("prompt",
   role === "журналист"
-    ? "upper body of a TV news journalist in a newsroom studio, wearing a formal blazer and shirt, holding a branded microphone, press badge, professional look, photorealistic"
+    ? "full upper body of a professional TV news journalist in a newsroom studio, wearing a formal blazer and shirt, holding a branded microphone, press badge, studio lighting, photorealistic, do NOT keep original clothes"
     : role === "блогер"
-    ? "upper body of a lifestyle video blogger in a cozy studio, wearing a hoodie or trendy casual clothes, maybe with smartphone or headphones, photorealistic"
-    : "upper body of a professional photographer in a photo studio, wearing dark practical clothes and a camera strap across the chest, photorealistic"
+    ? "full upper body of a lifestyle video blogger in a cozy studio, wearing a hoodie or trendy casual clothes, soft cozy lighting, maybe holding smartphone or headphones, photorealistic, do NOT keep original clothes"
+    : "full upper body of a professional photographer in a photo studio, wearing dark practical clothes and a camera strap across chest, neutral pose, photorealistic, do NOT keep original clothes"
 );
     let rBP = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fdBP }, 120000);
     let jBP = JSON.parse(await rBP.text());
     let bodyProxy512 = jBP?.imageBase64 ? "data:image/png;base64," + jBP.imageBase64 : crop.dataUrl;
 
-    statusEl.innerText = "Шаг 5/6: подготовка корпуса…";
-    const outfit512 = bodyProxy512;
+statusEl.innerText = "Шаг 5/6: подготовка корпуса…";
+const outfit512 = bodyProxy512;
     
     // вклейка 512→в полный размер (новый источник тела)
     const fullC = document.createElement("canvas"); fullC.width = fullImg.width; fullC.height = fullImg.height;

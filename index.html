@@ -309,7 +309,13 @@ async function buildMattesAndBBox(dataUrl){
   minX=Math.max(0,minX-padX); maxX=Math.min(w,maxX+padX);
   minY=Math.max(0,minY-padY); maxY=Math.min(h,maxY+padY);
   const bbox={ x:minX, y:minY, w:(maxX-minX), h:(maxY-minY) };
-
+// гарантируем, что bbox достаточно высокий (хотя бы половина кадра)
+const minH = h * 0.55;
+if (bbox.h < minH) {
+  const centerY = bbox.y + bbox.h / 2;
+  bbox.h = minH;
+  bbox.y = Math.max(0, Math.min(h - bbox.h, centerY - minH / 2));
+}
   const HEAD=new Set([0,1]); const ARMS=new Set([2,3,4,5]);
 
   // base person matte
@@ -520,38 +526,19 @@ async function generate(){
     fdBP.append("mode", "body-proxy");
     fdBP.append("image_b64", silhouette.toDataURL("image/png").split(",")[1]);
     fdBP.append("prompt",
-      role === "журналист"
-        ? "upper body of a professional journalist wearing a tailored blazer and microphone pin, realistic proportions, neutral colors"
-        : role === "блогер"
-        ? "upper body of a trendy blogger in casual outfit, hoodie or denim jacket, realistic proportions"
-        : "upper body of a photographer in dark functional outfit, camera strap, realistic proportions"
-    );
+  role === "журналист"
+    ? "upper body of a TV news journalist in a newsroom studio, wearing a formal blazer and shirt, holding a branded microphone, press badge, professional look, photorealistic"
+    : role === "блогер"
+    ? "upper body of a lifestyle video blogger in a cozy studio, wearing a hoodie or trendy casual clothes, maybe with smartphone or headphones, photorealistic"
+    : "upper body of a professional photographer in a photo studio, wearing dark practical clothes and a camera strap across the chest, photorealistic"
+);
     let rBP = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fdBP }, 120000);
     let jBP = JSON.parse(await rBP.text());
     let bodyProxy512 = jBP?.imageBase64 ? "data:image/png;base64," + jBP.imageBase64 : crop.dataUrl;
 
-    // === Шаг 5/6: смена одежды (wardrobe-mask) ===
-    statusEl.innerText = "Шаг 5/6: смена одежды…";
-    const bodyMaskFull = await loadImg("data:image/png;base64," + mats.bodyOnly_mask_b64);
-    const bodyMaskCrop512 = cropSquareAroundBBox(bodyMaskFull, mats.bbox, 0.22, 512);
-    const dilatedMask512 = await (async () => {
-      const tmp = document.createElement("canvas"); tmp.width = 512; tmp.height = 512;
-      tmp.getContext("2d").drawImage(await loadImg(bodyMaskCrop512.dataUrl), 0, 0);
-      const grow = morph(tmp, 4, 48);  // мягче и точнее
-      const blurC = document.createElement("canvas"); blurC.width = 512; blurC.height = 512;
-      const gb = blurC.getContext("2d"); gb.filter = "blur(6px)"; gb.drawImage(grow, 0, 0);
-      return blurC.toDataURL("image/png");
-    })();
-    const fdW = new FormData();
-    fdW.append("mode", "wardrobe-mask");
-    fdW.append("image_b64", bodyProxy512.split(",")[1]);
-    fdW.append("mask_b64", dilatedMask512.split(",")[1]);
-    fdW.append("prompt", outfitPrompt(role));
-    fdW.append("strength", String(CLOTH_STRENGTH));
-    const rW = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fdW }, 120000);
-    const jW = JSON.parse(await rW.text());
-    const outfit512 = jW?.imageBase64 ? "data:image/png;base64," + jW.imageBase64 : bodyProxy512;
-
+    statusEl.innerText = "Шаг 5/6: подготовка корпуса…";
+    const outfit512 = bodyProxy512;
+    
     // вклейка 512→в полный размер (новый источник тела)
     const fullC = document.createElement("canvas"); fullC.width = fullImg.width; fullC.height = fullImg.height;
     const gfull = fullC.getContext("2d"); gfull.drawImage(fullImg, 0, 0);

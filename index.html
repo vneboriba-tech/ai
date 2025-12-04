@@ -83,11 +83,13 @@
 /* ===== CONFIG ===== */
 const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
 const MAX_MB = 12;
-const MAX_SIZE = 1024;
-const BG_STEPS = 16;              // <= 20 (ограничение Workers AI)
-const CLOTH_STRENGTH = 0.45;      // мягкая смена одежды
-const SHOW_LOGS = true;            // включи true при отладке
-
+// единый размер результата (вертикальный 9:16, кратный 8)
+const CANVAS_W = 720;
+const CANVAS_H = 1280;
+const BG_STEPS = 16;              // достаточно для фона
+const CLOTH_STRENGTH = 0.65;      // более заметная смена одежды
+const SHOW_LOGS = true;           // при желании потом вернёшь false
+  
 /* ===== STATE ===== */
 let file=null, role="журналист";
 let bp=null, poseModel=null;

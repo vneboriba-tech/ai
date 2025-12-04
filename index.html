@@ -413,186 +413,182 @@ async function composeLogoOver(imgDataUrl){
 }
 
 /* ===== Main pipeline ===== */
+/* ===== Main pipeline ===== */
 async function generate(){
   if (!file) return;
-  statusEl.innerText="Подготовка…"; resultBox.style.display="none"; download.style.display="none"; hideErr(); if (SHOW_LOGS) logsEl.style.display="none";
 
-  try{
-    let {w,h,dataUrl,b64} = await resizeFile(file);
+  statusEl.innerText = "Подготовка…";
+  resultBox.style.display = "none";
+  download.style.display = "none";
+  hideErr();
+  if (SHOW_LOGS) logsEl.style.display = "none";
 
-   statusEl.innerText = "Шаг 1/6: анализ позы и сегментация…";
+  try {
+    // 1) приводим фото к единому размеру 720x1280
+    let { w, h, dataUrl, b64 } = await resizeFile(file);
 
-// 1) приводим фото к единому размеру
-let { w, h, dataUrl, b64 } = await resizeFile(file);
+    // 2) строим маски уже по ресайзнутому кадру
+    statusEl.innerText = "Шаг 1/6: анализ позы и сегментация…";
+    const mats = await buildMattesAndBBox(dataUrl);
 
-// 2) строим маски уже по ресайзнутому кадру
-const mats = await buildMattesAndBBox(dataUrl);
+    // === Шаг 2/6: генерация фона (модель возвращает PNG) ===
+    statusEl.innerText = "Шаг 2/6: генерация фона…";
 
-// Шаг 2/6: генерация фона…
-statusEl.innerText = "Шаг 2/6: генерация фона…";
+    let fd = new FormData();
+    fd.append("mode", "gen-bg");
+    fd.append("width", String(w));
+    fd.append("height", String(h));
+    fd.append("num_steps", String(BG_STEPS));
+    fd.append("prompt", bgPromptVariants(role));
 
-let fd = new FormData();
-fd.append("mode", "gen-bg");
-fd.append("width", String(w));
-fd.append("height", String(h));
-fd.append("num_steps", String(BG_STEPS));
-fd.append("prompt", bgPromptVariants(role));
+    let r;
+    try {
+      r = await fetchTO(`${API_BASE}/api/safe-edit`, {
+        method: "POST",
+        body: fd,
+      }, 120000);
+    } catch (e) {
+      return showErr("Не удалось обратиться к AI: " + (e.message || e));
+    }
 
-let r;
-try {
-  r = await fetchTO(`${API_BASE}/api/safe-edit`, {
-    method: "POST",
-    body: fd,
-  }, 120000);
-} catch (e) {
-  return showErr("Не удалось обратиться к AI: " + (e.message || e));
-}
+    // если воркер вернул ошибку (не 200) — пробуем прочитать текст/JSON
+    if (!r.ok) {
+      let raw = "";
+      try { raw = await r.text(); } catch {}
+      let j;
+      try { j = JSON.parse(raw); } catch { j = { raw }; }
 
-// если воркер вернул ошибку (не 200) — пробуем прочитать текст/JSON
-if (!r.ok) {
-  let raw = "";
-  try { raw = await r.text(); } catch {}
-  let j;
-  try { j = JSON.parse(raw); } catch { j = { raw }; }
+      log({ stage: "gen-bg-error", status: r.status, resp: j });
 
-  log({ stage: "gen-bg-error", status: r.status, resp: j });
+      const msg =
+        (j.error || "Не удалось создать фон") +
+        (j.details ? "\n" + j.details : "");
+      return showErr(msg);
+    }
 
-  const msg =
-    (j.error || "Не удалось создать фон") +
-    (j.details ? "\n" + j.details : "");
-  return showErr(msg);
-}
+    // тут всё хорошо: ожидаем КАРТИНКУ от воркера
+    const ct = (r.headers.get("Content-Type") || "").toLowerCase();
+    if (!ct.startsWith("image/")) {
+      const raw = await r.text().catch(() => "");
+      log({ stage: "gen-bg-non-image", status: r.status, raw });
+      return showErr("Сервер вернул неожиданный ответ (ожидалась картинка).");
+    }
 
-// тут всё хорошо: ожидаем КАРТИНКУ от воркера
-const ct = (r.headers.get("Content-Type") || "").toLowerCase();
-if (!ct.startsWith("image/")) {
-  const raw = await r.text().catch(() => "");
-  log({ stage: "gen-bg-non-image", status: r.status, raw });
-  return showErr("Сервер вернул неожиданный ответ (ожидалась картинка).");
-}
+    // конвертируем blob → dataURL
+    const blob = await r.blob();
+    let bgUrl = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);     // data:image/png;base64,...
+      fr.onerror = () => reject(fr.error || new Error("FileReader error"));
+      fr.readAsDataURL(blob);
+    });
 
-// конвертируем blob → dataURL
-const blob = await r.blob();
-let bgUrl = await new Promise((resolve, reject) => {
-  const fr = new FileReader();
-  fr.onload = () => resolve(fr.result);     // data:image/png;base64,...
-  fr.onerror = () => reject(fr.error || new Error("FileReader error"));
-  fr.readAsDataURL(blob);
-});
+    // === Шаг 3/6: подчистка фона через инпейнт ===
+    statusEl.innerText = "Шаг 3/6: подчистка фона под человека…";
 
-// Шаг 3/6: подчистка фона…
-statusEl.innerText = "Шаг 3/6: подчистка фона…";
+    let fd2 = new FormData();
+    fd2.append("mode", "bg-inpaint");
+    fd2.append("image_b64", bgUrl.split(",")[1]);
+    fd2.append("mask_b64", mats.reserve_mask_b64);
+    fd2.append("prompt", "keep background consistent and clean space for a standing person; photorealistic; no text");
 
-// теперь bgUrl — это dataURL
-let fd2 = new FormData();
-fd2.append("mode", "bg-inpaint");
-fd2.append("image_b64", bgUrl.split(",")[1]);
-fd2.append("mask_b64", mats.reserve_mask_b64);
-fd2.append("prompt", "keep background consistent and clean space for a standing person; photorealistic; no text");
+    let r2 = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fd2 }, 120000);
+    let text2 = await r2.text();
+    let j2;
+    try { j2 = JSON.parse(text2); } catch { j2 = { raw: text2 }; }
 
-let r2 = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fd2 }, 120000);
-let text2 = await r2.text();
-let j2;
-try { j2 = JSON.parse(text2); } catch { j2 = { raw: text2 }; }
+    log({ stage: "bg-inpaint", status: r2.status, resp: j2 });
 
-log({ stage: "bg-inpaint", status: r2.status, resp: j2 });
+    if (r2.ok && j2.imageBase64) {
+      bgUrl = "data:image/png;base64," + j2.imageBase64;
+    }
 
-if (r2.ok && j2.imageBase64) {
-  bgUrl = "data:image/png;base64," + j2.imageBase64;
-}
-    statusEl.innerText="Шаг 3/6: подчистка фона под человека…";
-    fd=new FormData();
-    fd.append("mode","bg-inpaint");
-    fd.append("image_b64", bgUrl.split(",")[1]);
-    fd.append("mask_b64", mats.reserve_mask_b64);
-    fd.append("prompt", "keep background consistent and clean space for a standing person; photorealistic; no text");
-    r=await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fd }, 120000);
-    j=JSON.parse(await r.text());
-    if (r.ok && j.imageBase64) bgUrl = "data:image/png;base64,"+j.imageBase64;
-
-    statusEl.innerText="Шаг 4/6: построение манекена…";
+    // === Шаг 4/6: построение манекена (body-proxy) ===
+    statusEl.innerText = "Шаг 4/6: построение манекена…";
     const fullImg = await loadImg(dataUrl);
     const crop = cropSquareAroundBBox(fullImg, mats.bbox, 0.22, 512);
-    const silhouette = document.createElement("canvas"); silhouette.width=512; silhouette.height=512;
-    { const g=silhouette.getContext("2d");
-      const src=await loadImg(crop.dataUrl); g.drawImage(src,0,0,512,512);
-      const matte=await loadImg("data:image/png;base64,"+mats.person_mask_b64);
+    const silhouette = document.createElement("canvas"); silhouette.width = 512; silhouette.height = 512;
+    {
+      const g = silhouette.getContext("2d");
+      const src = await loadImg(crop.dataUrl); g.drawImage(src, 0, 0, 512, 512);
+      const matte = await loadImg("data:image/png;base64," + mats.person_mask_b64);
       const matteCrop = cropSquareAroundBBox(matte, mats.bbox, 0.22, 512);
-      const mImg=await loadImg(matteCrop.dataUrl);
-      g.globalAlpha=0.65; g.drawImage(mImg,0,0);
+      const mImg = await loadImg(matteCrop.dataUrl);
+      g.globalAlpha = 0.65; g.drawImage(mImg, 0, 0);
     }
-    let fdBP=new FormData();
-    fdBP.append("mode","body-proxy");
+    let fdBP = new FormData();
+    fdBP.append("mode", "body-proxy");
     fdBP.append("image_b64", silhouette.toDataURL("image/png").split(",")[1]);
     fdBP.append("prompt",
-      role==="журналист"
+      role === "журналист"
         ? "upper body of a professional journalist wearing a tailored blazer and microphone pin, realistic proportions, neutral colors"
-        : role==="блогер"
+        : role === "блогер"
         ? "upper body of a trendy blogger in casual outfit, hoodie or denim jacket, realistic proportions"
         : "upper body of a photographer in dark functional outfit, camera strap, realistic proportions"
     );
-    let rBP=await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fdBP }, 120000);
-    let jBP=JSON.parse(await rBP.text());
-    let bodyProxy512 = jBP?.imageBase64 ? "data:image/png;base64,"+jBP.imageBase64 : crop.dataUrl;
+    let rBP = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fdBP }, 120000);
+    let jBP = JSON.parse(await rBP.text());
+    let bodyProxy512 = jBP?.imageBase64 ? "data:image/png;base64," + jBP.imageBase64 : crop.dataUrl;
 
-    statusEl.innerText="Шаг 5/6: смена одежды…";
-    const bodyMaskFull = await loadImg("data:image/png;base64,"+mats.bodyOnly_mask_b64);
+    // === Шаг 5/6: смена одежды (wardrobe-mask) ===
+    statusEl.innerText = "Шаг 5/6: смена одежды…";
+    const bodyMaskFull = await loadImg("data:image/png;base64," + mats.bodyOnly_mask_b64);
     const bodyMaskCrop512 = cropSquareAroundBBox(bodyMaskFull, mats.bbox, 0.22, 512);
-    const dilatedMask512 = await (async ()=>{
-      const tmp=document.createElement("canvas"); tmp.width=512; tmp.height=512;
-      tmp.getContext("2d").drawImage(await loadImg(bodyMaskCrop512.dataUrl),0,0);
+    const dilatedMask512 = await (async () => {
+      const tmp = document.createElement("canvas"); tmp.width = 512; tmp.height = 512;
+      tmp.getContext("2d").drawImage(await loadImg(bodyMaskCrop512.dataUrl), 0, 0);
       const grow = morph(tmp, 4, 48);  // мягче и точнее
-      const blurC=document.createElement("canvas"); blurC.width=512; blurC.height=512;
-      const gb=blurC.getContext("2d"); gb.filter="blur(6px)"; gb.drawImage(grow,0,0);
+      const blurC = document.createElement("canvas"); blurC.width = 512; blurC.height = 512;
+      const gb = blurC.getContext("2d"); gb.filter = "blur(6px)"; gb.drawImage(grow, 0, 0);
       return blurC.toDataURL("image/png");
     })();
-    const fdW=new FormData();
-    fdW.append("mode","wardrobe-mask");
+    const fdW = new FormData();
+    fdW.append("mode", "wardrobe-mask");
     fdW.append("image_b64", bodyProxy512.split(",")[1]);
-    fdW.append("mask_b64",  dilatedMask512.split(",")[1]);
+    fdW.append("mask_b64", dilatedMask512.split(",")[1]);
     fdW.append("prompt", outfitPrompt(role));
     fdW.append("strength", String(CLOTH_STRENGTH));
-    const rW=await fetchTO(`${API_BASE}/api/safe-edit`, { method:"POST", body:fdW }, 120000);
-    const jW=JSON.parse(await rW.text());
-    const outfit512=jW?.imageBase64 ? "data:image/png;base64,"+jW.imageBase64 : bodyProxy512;
+    const rW = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fdW }, 120000);
+    const jW = JSON.parse(await rW.text());
+    const outfit512 = jW?.imageBase64 ? "data:image/png;base64," + jW.imageBase64 : bodyProxy512;
 
     // вклейка 512→в полный размер (новый источник тела)
-    const fullC=document.createElement("canvas"); fullC.width=fullImg.width; fullC.height=fullImg.height;
-    const gfull=fullC.getContext("2d"); gfull.drawImage(fullImg,0,0);
-    const o512=await loadImg(outfit512); const {x,y,side}=crop.rect; gfull.drawImage(o512, x,y,side,side);
-    dataUrl=fullC.toDataURL("image/png"); b64=dataUrl.split(",")[1];
+    const fullC = document.createElement("canvas"); fullC.width = fullImg.width; fullC.height = fullImg.height;
+    const gfull = fullC.getContext("2d"); gfull.drawImage(fullImg, 0, 0);
+    const o512 = await loadImg(outfit512); const { x, y, side } = crop.rect; gfull.drawImage(o512, x, y, side, side);
+    dataUrl = fullC.toDataURL("image/png"); b64 = dataUrl.split(",")[1];
 
-    /* ===== Шаг 6/6: сборка сцены (сохранение лица/кистей) ===== */
+    // === Шаг 6/6: сборка сцены (сохранение лица/кистей) ===
     const bg = await loadImg(bgUrl);
     const body = await loadImg(dataUrl);
-    const headH = await loadImg("data:image/png;base64,"+mats.headHands_png_b64);
-    const bodyMaskImg = await loadImg("data:image/png;base64,"+mats.bodyOnly_mask_b64);
+    const headH = await loadImg("data:image/png;base64," + mats.headHands_png_b64);
+    const bodyMaskImg = await loadImg("data:image/png;base64," + mats.bodyOnly_mask_b64);
 
     const comp = document.createElement("canvas"); comp.width = bg.width; comp.height = bg.height;
     const g = comp.getContext("2d");
 
     // центрирование: фон по cover, выравниваем по центру силуэта
-    const targetCX = bg.width/2;
-    const srcCX = mats.bbox.x + mats.bbox.w/2;
-    const dx = Math.round(targetCX - srcCX);
-    const pad = Math.abs(dx);
-    const scale = 1 + (pad*2)/bg.width + 0.04;
-    const sw = Math.round(bg.width * scale);
-    const sh = Math.round(bg.height * scale);
-    const ox = Math.round((sw - bg.width)/2) - dx;
-    const oy = Math.round((sh - bg.height)/2);
+    const targetCX = bg.width / 2;
+    const srcCX = mats.bbox.x + mats.bbox.w / 2;
+    const shiftX = Math.round(targetCX - srcCX);
+    const pad = Math.abs(shiftX);
+    const scaleBg = 1 + (pad * 2) / bg.width + 0.04;
+    const sw = Math.round(bg.width * scaleBg);
+    const sh = Math.round(bg.height * scaleBg);
+    const ox = Math.round((sw - bg.width) / 2) - shiftX;
+    const oy = Math.round((sh - bg.height) / 2);
     g.drawImage(bg, -ox, -oy, sw, sh);
 
     // корпус: ядро + размягчённый край
-    const hm = document.createElement("canvas"); hm.width=bg.width; hm.height=bg.height; hm.getContext("2d").drawImage(bodyMaskImg,0,0);
-    const core = morph(hm, 1.5, 128);     // ядро не «съедаем»
+    const hm = document.createElement("canvas"); hm.width = bg.width; hm.height = bg.height; hm.getContext("2d").drawImage(bodyMaskImg, 0, 0);
+    const core = morph(hm, 1.5, 128);
     const grow = morph(hm, 10, 12);
     const edge = subtractMasks(grow, core);
-    const edgeBlur = document.createElement("canvas"); edgeBlur.width=bg.width; edgeBlur.height=bg.height;
-    const geb=edgeBlur.getContext("2d"); geb.filter="blur(7px)"; geb.drawImage(edge,0,0);
+    const edgeBlur = document.createElement("canvas"); edgeBlur.width = bg.width; edgeBlur.height = bg.height;
+    const geb = edgeBlur.getContext("2d"); geb.filter = "blur(7px)"; geb.drawImage(edge, 0, 0);
 
-    const finalAlpha = document.createElement("canvas"); finalAlpha.width=bg.width; finalAlpha.height=bg.height;
-    const ga=finalAlpha.getContext("2d"); ga.drawImage(core,0,0); ga.globalCompositeOperation="lighter"; ga.drawImage(edgeBlur,0,0); ga.globalCompositeOperation="source-over";
+    const finalAlpha = document.createElement("canvas"); finalAlpha.width = bg.width; finalAlpha.height = bg.height;
+    const ga = finalAlpha.getContext("2d"); ga.drawImage(core, 0, 0); ga.globalCompositeOperation = "lighter"; ga.drawImage(edgeBlur, 0, 0); ga.globalCompositeOperation = "source-over";
 
     // fallback: если маска почти пустая — используем hm с лёгким blur
     (function ensureAlphaNotEmpty(){
@@ -600,14 +596,14 @@ if (r2.ok && j2.imageBase64) {
       const id = gfa.getImageData(0,0,finalAlpha.width,finalAlpha.height);
       let nz = 0; for (let i=3;i<id.data.length;i+=4){ if (id.data[i] > 12) { nz++; if (nz>5000) break; } }
       if (nz <= 5000){
-        const safe = document.createElement("canvas"); safe.width=hm.width; safe.height=hm.height;
-        const gs = safe.getContext("2d"); gs.filter="blur(2px)"; gs.drawImage(hm,0,0);
+        const safe = document.createElement("canvas"); safe.width = hm.width; safe.height = hm.height;
+        const gs = safe.getContext("2d"); gs.filter = "blur(2px)"; gs.drawImage(hm,0,0);
         gfa.clearRect(0,0,finalAlpha.width,finalAlpha.height); gfa.drawImage(safe,0,0);
       }
     })();
 
     // подготовка тела: цвет/резкость под фон
-    const bodyAdj = document.createElement("canvas"); bodyAdj.width=body.width; bodyAdj.height=body.height;
+    const bodyAdj = document.createElement("canvas"); bodyAdj.width = body.width; bodyAdj.height = body.height;
     bodyAdj.getContext("2d").drawImage(body,0,0);
 
     const bgStats = statsRGB(comp, {
@@ -651,13 +647,13 @@ if (r2.ok && j2.imageBase64) {
     gAdj.putImageData(iid,0,0);
 
     // применяем альфу корпуса
-    const bodySoft = document.createElement("canvas"); bodySoft.width=bg.width; bodySoft.height=bg.height;
+    const bodySoft = document.createElement("canvas"); bodySoft.width = bg.width; bodySoft.height = bg.height;
     const gbod = bodySoft.getContext("2d"); gbod.drawImage(bodyAdj,0,0);
-    gbod.globalCompositeOperation="destination-in"; gbod.drawImage(finalAlpha,0,0); gbod.globalCompositeOperation="source-over";
+    gbod.globalCompositeOperation = "destination-in"; gbod.drawImage(finalAlpha,0,0); gbod.globalCompositeOperation = "source-over";
     g.drawImage(bodySoft, 0, 0);
 
-    // ГОЛОВА И КИСТИ — ПОСЛЕДНИМИ, 1:1 ИСТОЧНИК (сохранение лица)
-    const hh = await loadImg("data:image/png;base64,"+mats.headHands_png_b64);
+    // ГОЛОВА И КИСТИ — ПОСЛЕДНИМИ, 1:1 ИСТОЧНИК
+    const hh = await loadImg("data:image/png;base64," + mats.headHands_png_b64);
     g.drawImage(hh, 0, 0);
 
     // тень + лого
@@ -665,10 +661,14 @@ if (r2.ok && j2.imageBase64) {
     outUrl = await addContactShadow(outUrl, mats.bbox);
     outUrl = await composeLogoOver(outUrl);
 
-    resultImg.src=outUrl; resultBox.style.display="block"; download.href=outUrl; download.style.display="inline-block";
-    statusEl.innerText="Готово ✓ · лицо сохранено, корпус без ореола, фон сгенерирован";
-  }catch(e){
-    showErr(e.message||"Неизвестная ошибка");
+    resultImg.src = outUrl;
+    resultBox.style.display = "block";
+    download.href = outUrl;
+    download.style.display = "inline-block";
+    statusEl.innerText = "Готово ✓ · лицо сохранено, корпус без ореола, фон сгенерирован";
+  } catch(e) {
+    console.error(e);
+    showErr(e.message || "Неизвестная ошибка");
   }
 }
 </script>

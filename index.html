@@ -384,8 +384,7 @@ async function generate(){
 
     statusEl.innerText="Шаг 1/6: анализ позы и сегментация…";
     const mats = await buildMattesAndBBox(dataUrl);
-
-   statusEl.innerText = "Шаг 2/6: генерация фона…";
+// Шаг 2/6: генерация фона…
 statusEl.innerText = "Шаг 2/6: генерация фона…";
 
 let fd = new FormData();
@@ -397,12 +396,15 @@ fd.append("prompt", bgPromptVariants(role));
 
 let r;
 try {
-  r = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fd }, 120000);
+  r = await fetchTO(`${API_BASE}/api/safe-edit`, {
+    method: "POST",
+    body: fd,
+  }, 120000);
 } catch (e) {
   return showErr("Не удалось обратиться к AI: " + (e.message || e));
 }
 
-// если воркер вернул ошибку — пробуем прочитать её как текст/JSON
+// если воркер вернул ошибку (не 200) — пробуем прочитать текст/JSON
 if (!r.ok) {
   let raw = "";
   try { raw = await r.text(); } catch {}
@@ -417,24 +419,24 @@ if (!r.ok) {
   return showErr(msg);
 }
 
-// тут всё хорошо, ожидаем ИМЕННО картинку
-const ct = (r.headers.get("Content-Type") || r.headers.get("content-type") || "").toLowerCase();
+// тут всё хорошо: ожидаем КАРТИНКУ от воркера
+const ct = (r.headers.get("Content-Type") || "").toLowerCase();
 if (!ct.startsWith("image/")) {
   const raw = await r.text().catch(() => "");
   log({ stage: "gen-bg-non-image", status: r.status, raw });
   return showErr("Сервер вернул неожиданный ответ (ожидалась картинка).");
 }
 
-// получаем blob и конвертируем в dataURL
+// конвертируем blob → dataURL
 const blob = await r.blob();
-const bgUrl = await new Promise((res, rej) => {
+let bgUrl = await new Promise((resolve, reject) => {
   const fr = new FileReader();
-  fr.onload = () => res(fr.result);       // тут получится data:image/png;base64,...
-  fr.onerror = () => rej(fr.error || new Error("FileReader error"));
+  fr.onload = () => resolve(fr.result);     // data:image/png;base64,...
+  fr.onerror = () => reject(fr.error || new Error("FileReader error"));
   fr.readAsDataURL(blob);
 });
 
-// дальше код как у тебя был:
+// Шаг 3/6: подчистка фона…
 statusEl.innerText = "Шаг 3/6: подчистка фона…";
 
 // теперь bgUrl — это dataURL

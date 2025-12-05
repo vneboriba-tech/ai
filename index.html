@@ -258,38 +258,34 @@ function matchColors(srcCanvas, targetStats){
 
 /* ===== Prompts ===== */
 function bgPromptVariants(role){
-  // вариативность сцен для каждого образа
   const pick = arr => arr[Math.floor(Math.random()*arr.length)];
-  if (role==="журналист") {
+
+  if (role === "журналист") {
     const scenes = [
-      "broadcast newsroom, glass anchor desk, cameras, boom mics, LED wall with abstract news graphics",
-      "TV studio control room viewpoint, cameras on tripods, soft panels, diffuse reflections on floor",
-      "press briefing room, podium out of frame, microphones and softboxes, newsroom glass walls"
+      "empty modern TV newsroom studio interior, cameras and lights visible, large LED screen wall, desks and teleprompters, NO people, NO human figures, NO silhouettes",
+      "empty press briefing room with podium out of frame, TV lights and microphones visible, glass newsroom walls, NO people, NO human shapes",
+      "empty control room style news studio with monitors on walls, production equipment, soft studio lighting, NO people, NO human silhouettes"
     ];
-    return pick(scenes) + ", shallow depth of field, photographic noise, correct perspective, no readable text";
+    return pick(scenes) + ", photorealistic, shallow depth of field, no readable text";
   }
-  if (role==="блогер") {
+
+  if (role === "блогер") {
     const scenes = [
-      "creator studio, ring light, softboxes, green screen, DSLR on tripod, shelves with props",
-      "cozy streaming room, RGB ambient lights, desk with mic arm, softbox out of frame",
-      "minimal studio with seamless green backdrop, ring light reflection on lens"
+      "empty cozy home streaming studio, desk with microphone arm and ring light, RGB ambient lights, shelves with decor, NO people, NO human figures",
+      "empty minimalist creator studio, softboxes, ring light, desk with laptop and microphone, LED strips, NO people, NO human shapes",
+      "empty vlog recording room, sofa, plants, camera on tripod, warm soft light, NO people, NO silhouettes"
     ];
-    return pick(scenes) + ", shallow depth of field, photographic noise, correct perspective, no readable text";
+    return pick(scenes) + ", photorealistic, shallow depth of field, no readable text";
   }
+
   // фотограф
   const scenes = [
-    "professional photo studio, backdrop rolls, C-stands, light stands, softboxes, cables on floor",
-    "industrial loft studio, v-flats, large octabox, backdrop support system",
-    "white cyclorama studio, apple boxes, sandbags, c-stands with flags"
+    "empty professional photo studio, seamless backdrops, C-stands, light stands, softboxes, cables on floor, NO people, NO human figures",
+    "empty industrial loft photo studio, v-flats, large octabox, backdrop support system, NO people, NO human shapes",
+    "empty white cyclorama photo studio, apple boxes, sandbags, c-stands with flags, NO people, NO silhouettes"
   ];
-  return scenes[Math.floor(Math.random()*scenes.length)] + ", slight lens falloff, photographic noise, correct perspective, no readable text";
+  return pick(scenes) + ", photorealistic, slight lens falloff, no readable text";
 }
-function outfitPrompt(role){
-  if (role==="журналист") return "update ONLY clothing to smart-casual journalist style: tailored blazer in neutral tones, optional lapel mic; keep the same person and identity; photorealistic";
-  if (role==="блогер")    return "update ONLY clothing to stylish casual blogger style: hoodie or tee, relaxed trousers; keep the same person and identity; photorealistic";
-  return "update ONLY clothing to practical photographer style: dark utility vest or jacket; keep the same person and identity; photorealistic";
-}
-
 /* ===== Build mattes & bbox ===== */
 async function buildMattesAndBBox(dataUrl){
   await Promise.all([loadBP(), loadPose()]);
@@ -506,11 +502,12 @@ async function generate(){
     fdBP.append("image_b64", silhouette.toDataURL("image/png").split(",")[1]);
     fdBP.append("prompt",
   role === "журналист"
-    ? "full upper body of a professional TV news journalist in a newsroom studio, wearing a formal blazer and shirt, holding a branded microphone, press badge, studio lighting, photorealistic, do NOT keep original clothes"
+    ? "full upper body of a professional TV news journalist in a newsroom studio, wearing a formal blazer and shirt, no hat, no hood, no scarf, holding a branded microphone and a press badge, studio lighting, photorealistic, same person, keep the same face"
     : role === "блогер"
-    ? "full upper body of a lifestyle video blogger in a cozy studio, wearing a hoodie or trendy casual clothes, soft cozy lighting, maybe holding smartphone or headphones, photorealistic, do NOT keep original clothes"
-    : "full upper body of a professional photographer in a photo studio, wearing dark practical clothes and a camera strap across chest, neutral pose, photorealistic, do NOT keep original clothes"
+    ? "full upper body of a lifestyle video blogger in a cozy home studio, wearing a hoodie or trendy casual clothes, no hat, no hood, no scarf, maybe holding a smartphone or headphones, photorealistic, same person, keep the same face"
+    : "full upper body of a professional photographer in a photo studio, wearing dark practical clothes and a camera strap across the chest, no hat, no hood, no scarf, photorealistic, same person, keep the same face"
 );
+
     let rBP = await fetchTO(`${API_BASE}/api/safe-edit`, { method: "POST", body: fdBP }, 120000);
     let jBP = JSON.parse(await rBP.text());
     let bodyProxy512 = jBP?.imageBase64 ? "data:image/png;base64," + jBP.imageBase64 : crop.dataUrl;

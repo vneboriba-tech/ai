@@ -277,19 +277,31 @@ async function generate(){
 
   try {
     // 1) приводим к фиксированному вертикальному размеру
-    const { w, h, dataUrl, b64 } = await resizeFile(file);
+   const { w, h, dataUrl, b64 } = await resizeFile(file);
 
-    statusEl.innerText = "Шаг 2/2: создаём образ…";
+statusEl.innerText = "Шаг 2/2: создаём образ…";
 
-    const fd = new FormData();
-    fd.append("mode", "role-img2img");
-    fd.append("image_b64", b64);
-    fd.append("width", String(w));
-    fd.append("height", String(h));
-    fd.append("num_steps", "16");
-    fd.append("guidance", "7.5");
-    fd.append("role", role);
-    fd.append("prompt", rolePrompt(role));
+// --- FIX: гарантируем, что image_b64 — СТРОКА base64 ---
+let imgB64 = b64;
+
+// если вдруг пришёл Uint8Array / Array — конвертируем в строку
+if (imgB64 instanceof Uint8Array) {
+  imgB64 = btoa(String.fromCharCode(...imgB64));
+} else if (Array.isArray(imgB64)) {
+  imgB64 = btoa(String.fromCharCode(...new Uint8Array(imgB64)));
+} else if (typeof imgB64 !== "string") {
+  imgB64 = String(imgB64);
+}
+
+const fd = new FormData();
+fd.append("mode", "role-img2img");
+fd.append("image_b64", imgB64);
+fd.append("width", String(w));
+fd.append("height", String(h));
+fd.append("num_steps", "16");
+fd.append("guidance", "7.5");
+fd.append("role", role);
+fd.append("prompt", rolePrompt(role));
 
     let r;
     try {

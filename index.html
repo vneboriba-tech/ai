@@ -36,9 +36,6 @@
     footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
     pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
   </style>
-
-  <!-- TF.js + BodyPix + Pose (MoveNet) -->
-  
 </head>
 <body>
   <div class="container">
@@ -80,11 +77,8 @@
 /* ===== CONFIG ===== */
 const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
 const MAX_MB = 12;
-
-// единый размер результата (вертикальный); держим в пределах 1024px по высоте
 const CANVAS_W = 720;
 const CANVAS_H = 1024;
-
 const SHOW_LOGS = true;
 
 /* ===== STATE ===== */
@@ -102,7 +96,7 @@ const resultImg  = document.getElementById("resultImg");
 const download   = document.getElementById("download");
 const logsEl     = document.getElementById("logs");
 
-/* ===== маленькие утилиты ===== */
+/* ===== utils ===== */
 function showErr(m){
   errEl.style.display = "block";
   errEl.innerText = m;
@@ -134,7 +128,7 @@ function loadImg(src){
   });
 }
 
-/* ===== загрузка файла ===== */
+/* ===== drag & drop / file ===== */
 drop.addEventListener("dragover", e => e.preventDefault());
 drop.addEventListener("drop", e => {
   e.preventDefault();
@@ -163,7 +157,7 @@ function handleFile(f){
   generate();
 }
 
-/* ===== приведение фото к единому размеру ===== */
+/* ===== resize to fixed vertical canvas ===== */
 async function resizeFile(f){
   const du = await new Promise((res, rej)=>{
     const r = new FileReader();
@@ -181,7 +175,6 @@ async function resizeFile(f){
   c.height = CANVAS_H;
   const g = c.getContext("2d");
 
-  // как background-size: cover
   const scale = Math.max(CANVAS_W / srcW, CANVAS_H / srcH);
   const newW = srcW * scale;
   const newH = srcH * scale;
@@ -195,7 +188,7 @@ async function resizeFile(f){
     w: CANVAS_W,
     h: CANVAS_H,
     dataUrl: out,
-    b64: out.split(",")[1],
+    b64: out.split(",")[1], // чистая base64 без data:image/...
   };
 }
 
@@ -219,7 +212,6 @@ function rolePrompt(role){
       "cinematic lighting, photorealistic, no extra people, no text"
     ].join(", ");
   }
-  // фотограф
   return [
     "portrait of a single person as a professional photographer",
     "in a photo studio with light stands, softboxes and backdrops",
@@ -265,7 +257,7 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
-/* ===== основной пайплайн (перерисовать всё одним img2img) ===== */
+/* ===== основной пайплайн ===== */
 async function generate(){
   if (!file) return;
 
@@ -276,32 +268,22 @@ async function generate(){
   if (SHOW_LOGS) logsEl.style.display = "none";
 
   try {
-    // 1) приводим к фиксированному вертикальному размеру
-   const { w, h, dataUrl, b64 } = await resizeFile(file);
+    const { w, h, dataUrl, b64 } = await resizeFile(file);
 
-statusEl.innerText = "Шаг 2/2: создаём образ…";
+    statusEl.innerText = "Шаг 2/2: создаём образ…";
 
-// --- FIX: гарантируем, что image_b64 — СТРОКА base64 ---
-let imgB64 = b64;
+    // b64 уже строка; просто убеждаемся
+    let imgB64 = typeof b64 === "string" ? b64 : String(b64);
 
-// если вдруг пришёл Uint8Array / Array — конвертируем в строку
-if (imgB64 instanceof Uint8Array) {
-  imgB64 = btoa(String.fromCharCode(...imgB64));
-} else if (Array.isArray(imgB64)) {
-  imgB64 = btoa(String.fromCharCode(...new Uint8Array(imgB64)));
-} else if (typeof imgB64 !== "string") {
-  imgB64 = String(imgB64);
-}
-
-const fd = new FormData();
-fd.append("mode", "role-img2img");
-fd.append("image_b64", imgB64);
-fd.append("width", String(w));
-fd.append("height", String(h));
-fd.append("num_steps", "16");
-fd.append("guidance", "7.5");
-fd.append("role", role);
-fd.append("prompt", rolePrompt(role));
+    const fd = new FormData();
+    fd.append("mode", "role-img2img");
+    fd.append("image_b64", imgB64);
+    fd.append("width", String(w));
+    fd.append("height", String(h));
+    fd.append("num_steps", "16");
+    fd.append("guidance", "7.5");
+    fd.append("role", role);
+    fd.append("prompt", rolePrompt(role));
 
     let r;
     try {

@@ -4,348 +4,219 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Почувствуй себя журналистом</title>
-  <meta name="description" content="Журналист / Блогер / Фотограф — реалистичная смена окружения и образа при сохранении лица и рук" />
+
   <style>
     :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
     * { box-sizing:border-box; }
-    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; }
     body { display:flex; flex-direction:column; align-items:center; min-height:100vh; }
     header { text-align:center; margin-top:24px; margin-bottom:16px; }
     h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
+
     .container { width:100%; max-width:960px; padding:20px; }
-    .uploader { position:relative; border:2px dashed var(--border); border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center; cursor:pointer; transition:.2s; }
+
+    .uploader { position:relative; border:2px dashed var(--border);
+      border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center;
+      cursor:pointer; transition:.2s; }
     .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
     .uploader img.logo { width:72px; height:72px; margin-bottom:12px; pointer-events:none; }
-    .uploader input[type=file]{ position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; display:block; }
+    .uploader input[type=file]{ position:absolute; inset:0; opacity:0; cursor:pointer; }
+
     .headline { font-weight:700; font-size:18px; pointer-events:none; }
     .sub { color:var(--muted); font-size:14px; margin-top:6px; pointer-events:none; }
+
     .picked { margin-top:10px; font-size:14px; }
+
     .roles { margin-top:24px; }
     .roles-title { text-align:center; font-weight:700; font-size:18px; }
-    .roles-grid { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; }
-    @media(min-width:720px){ .roles-grid{grid-template-columns:repeat(3,1fr);} }
-    .role { border:1px solid var(--border); border-radius:14px; padding:12px; font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
-    .role:hover { box-shadow:0 4px 10px rgba(0,0,0,0.05); }
+    .roles-grid { display:grid; grid-template-columns:repeat(3,1fr);
+      gap:12px; margin-top:12px; }
+    .role { border:1px solid var(--border); border-radius:14px; padding:12px;
+      font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
     .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
+
     .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
     .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
+
     .result { margin-top:24px; text-align:center; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
+
     .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
     .btn:hover { background:#059669; }
-    footer { margin-top:40px; text-align:center; color:#6b7280; font-size:14px; }
-    pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px; border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
+
+    pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px;
+      border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
   </style>
 </head>
+
 <body>
-  <div class="container">
-    <header><h1>Почувствуй себя журналистом</h1></header>
+<div class="container">
+<header><h1>Почувствуй себя журналистом</h1></header>
 
-    <div class="uploader" id="dropzone">
-      <img src="logo.png" alt="Логотип" class="logo" onerror="this.style.display='none'">
-      <div class="headline">Загрузите фото</div>
-      <div class="sub">JPG, PNG, WEBP до 12 МБ</div>
-      <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" />
-      <div id="picked" class="picked"></div>
-    </div>
+<div class="uploader" id="dropzone">
+  <img src="logo.png" class="logo" alt="">
+  <div class="headline">Загрузите фото</div>
+  <div class="sub">JPG, PNG, WEBP до 12 МБ</div>
+  <input id="fileInput" type="file" accept="image/*">
+  <div id="picked" class="picked"></div>
+</div>
 
-    <div class="roles">
-      <div class="roles-title">Выберите роль</div>
-      <div class="roles-grid">
-        <button class="role active" data-role="журналист">Журналист</button>
-        <button class="role" data-role="блогер">Блогер</button>
-        <button class="role" data-role="фотограф">Фотограф</button>
-      </div>
-    </div>
-
-    <div id="status" class="status">Готово к работе</div>
-    <div id="error" class="err"></div>
-
-    <div id="resultBox" class="result" style="display:none;">
-      <img id="resultImg" alt="Результат">
-      <div style="margin-top:12px;">
-        <a id="download" class="btn" download="result.png" style="display:none;">Скачать PNG</a>
-      </div>
-    </div>
-
-    <pre id="logs"></pre>
+<div class="roles">
+  <div class="roles-title">Выберите роль</div>
+  <div class="roles-grid">
+    <button class="role active" data-role="журналист">Журналист</button>
+    <button class="role" data-role="блогер">Блогер</button>
+    <button class="role" data-role="фотограф">Фотограф</button>
   </div>
+</div>
 
-  <footer>© 2025 факультет журналистики МГУ</footer>
+<div id="status" class="status">Готово к работе</div>
+<div id="error" class="err"></div>
+
+<div id="resultBox" class="result" style="display:none;">
+  <img id="resultImg">
+  <div style="margin-top:12px;"><a id="download" class="btn" download="result.png">Скачать PNG</a></div>
+</div>
+
+<pre id="logs"></pre>
+</div>
 
 <script>
-/* ===== CONFIG ===== */
 const API_BASE = "https://media-gen-worker.vneboriba.workers.dev";
-const MAX_MB = 12;
 const CANVAS_W = 720;
 const CANVAS_H = 1024;
+const MAX_MB = 12;
 const SHOW_LOGS = true;
 
-/* ===== STATE ===== */
 let file = null;
 let role = "журналист";
 
-/* ===== UI ===== */
-const input      = document.getElementById("fileInput");
-const drop       = document.getElementById("dropzone");
-const picked     = document.getElementById("picked");
-const statusEl   = document.getElementById("status");
-const errEl      = document.getElementById("error");
-const resultBox  = document.getElementById("resultBox");
-const resultImg  = document.getElementById("resultImg");
-const download   = document.getElementById("download");
-const logsEl     = document.getElementById("logs");
+const input = document.getElementById("fileInput");
+const statusEl = document.getElementById("status");
+const errEl = document.getElementById("error");
+const resultBox = document.getElementById("resultBox");
+const resultImg = document.getElementById("resultImg");
+const download = document.getElementById("download");
+const logsEl = document.getElementById("logs");
 
-/* ===== utils ===== */
-function showErr(m){
-  errEl.style.display = "block";
-  errEl.innerText = m;
-  statusEl.innerText = "Ошибка";
-}
-function hideErr(){
-  errEl.style.display = "none";
-  errEl.innerText = "";
-}
 function log(o){
   if (!SHOW_LOGS) return;
-  try {
-    logsEl.style.display = "block";
-    logsEl.textContent = typeof o === "string" ? o : JSON.stringify(o, null, 2);
-  } catch {}
+  logsEl.style.display = "block";
+  logsEl.textContent = typeof o === "string" ? o : JSON.stringify(o, null, 2);
 }
-function fetchTO(url, init={}, ms=120000){
-  const c = new AbortController();
-  const id = setTimeout(()=>c.abort(), ms);
-  return fetch(url, { ...init, signal: c.signal }).finally(()=>clearTimeout(id));
+function showErr(msg){
+  errEl.innerText = msg;
+  errEl.style.display = "block";
 }
-function loadImg(src){
-  return new Promise((res, rej)=>{
-    const i = new Image();
-    i.crossOrigin = "anonymous";
-    i.onload = () => res(i);
-    i.onerror = rej;
-    i.src = src;
-  });
-}
+function hideErr(){ errEl.style.display="none"; }
 
-/* ===== drag & drop / file ===== */
-drop.addEventListener("dragover", e => e.preventDefault());
-drop.addEventListener("drop", e => {
-  e.preventDefault();
-  const f = e.dataTransfer.files?.[0];
-  if (f) handleFile(f);
-});
-input.addEventListener("change", e => handleFile(e.target.files?.[0]));
-
-/* выбор роли */
-document.querySelectorAll(".role").forEach(b => {
-  b.addEventListener("click", ()=>{
-    document.querySelectorAll(".role").forEach(x => x.classList.remove("active"));
-    b.classList.add("active");
-    role = b.dataset.role;
+document.querySelectorAll(".role").forEach(btn=>{
+  btn.onclick = () => {
+    document.querySelectorAll(".role").forEach(x=>x.classList.remove("active"));
+    btn.classList.add("active");
+    role = btn.dataset.role;
     if (file) generate();
-  });
+  };
 });
 
-function handleFile(f){
-  if (!f) return;
-  if (!f.type.startsWith("image/")) return showErr("Нужен файл изображения.");
-  if (f.size > MAX_MB*1024*1024) return showErr("Слишком большой файл (до 12 МБ).");
-  hideErr();
-  file = f;
-  picked.innerText = `Вы выбрали: ${f.name}`;
-  generate();
+async function loadImg(url){
+  return new Promise((res,rej)=>{
+    const img = new Image();
+    img.onload=()=>res(img);
+    img.onerror=rej;
+    img.src=url;
+  });
 }
 
-/* ===== resize to fixed vertical canvas ===== */
 async function resizeFile(f){
-  const du = await new Promise((res, rej)=>{
-    const r = new FileReader();
-    r.onload = () => res(r.result);
-    r.onerror = rej;
+  const dataURL = await new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result);
+    r.onerror=rej;
     r.readAsDataURL(f);
   });
 
-  const im = await loadImg(du);
-  const srcW = im.width;
-  const srcH = im.height;
-
+  const img = await loadImg(dataURL);
   const c = document.createElement("canvas");
-  c.width = CANVAS_W;
-  c.height = CANVAS_H;
-  const g = c.getContext("2d");
+  c.width=CANVAS_W; c.height=CANVAS_H;
+  const g=c.getContext("2d");
 
-  const scale = Math.max(CANVAS_W / srcW, CANVAS_H / srcH);
-  const newW = srcW * scale;
-  const newH = srcH * scale;
-  const dx = (CANVAS_W - newW) / 2;
-  const dy = (CANVAS_H - newH) / 2;
-  g.drawImage(im, dx, dy, newW, newH);
+  const scale = Math.max(CANVAS_W/img.width, CANVAS_H/img.height);
+  g.drawImage(img,
+    (CANVAS_W-img.width*scale)/2,
+    (CANVAS_H-img.height*scale)/2,
+    img.width*scale,
+    img.height*scale
+  );
 
-  const out = c.toDataURL("image/jpeg", 0.92);
-
-  return {
-    w: CANVAS_W,
-    h: CANVAS_H,
-    dataUrl: out,
-    b64: out.split(",")[1], // чистая base64 без data:image/...
-  };
+  const out = c.toDataURL("image/jpeg",0.92);
+  return { w:CANVAS_W, h:CANVAS_H, b64: out.split(",")[1] };
 }
 
-/* ===== роль → промпт ===== */
-function rolePrompt(role){
-  if (role === "журналист") {
-    return [
-      "portrait of a single person as a professional TV news journalist",
-      "in a modern newsroom studio, cameras and lights in the background",
-      "formal blazer and shirt, subtle microphone or press badge",
-      "medium shot, from waist up, looking at the camera",
-      "cinematic lighting, photorealistic, no extra people, no text"
-    ].join(", ");
-  }
-  if (role === "блогер") {
-    return [
-      "portrait of a single person as a lifestyle video blogger",
-      "in a cozy streaming room or home studio with soft lights",
-      "hoodie or trendy casual clothes, maybe with headphones or smartphone",
-      "medium shot, from waist up, friendly expression",
-      "cinematic lighting, photorealistic, no extra people, no text"
-    ].join(", ");
-  }
-  return [
-    "portrait of a single person as a professional photographer",
-    "in a photo studio with light stands, softboxes and backdrops",
-    "dark practical clothes, camera strap across the chest",
-    "medium shot, from waist up, focused expression",
-    "cinematic lighting, photorealistic, no extra people, no text"
-  ].join(", ");
+function rolePrompt(r){
+  if (r==="журналист")
+    return "portrait of a single person as a professional TV news journalist, newsroom background, formal clothes, realistic lighting, medium shot, no other people";
+  if (r==="блогер")
+    return "portrait of a lifestyle blogger, cozy room background, trendy casual clothes, soft lighting, medium shot, no other people";
+  return "portrait of a photographer in studio, lights and backdrops, dark clothes, medium shot, no other people";
 }
 
-/* ===== лого поверх результата ===== */
-async function composeLogoOver(imgDataUrl){
-  const base = await loadImg(imgDataUrl);
-  const logo = await loadImg("logo.png").catch(()=>null);
-  if (!logo) return imgDataUrl;
+input.onchange = e => {
+  const f=e.target.files[0];
+  if (!f) return;
+  if (f.size > MAX_MB*1024*1024) return showErr("Файл слишком большой");
+  file=f;
+  hideErr();
+  generate();
+};
 
-  const w = base.width;
-  const h = base.height;
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  const g = c.getContext("2d");
-  g.drawImage(base, 0, 0, w, h);
-
-  const logoW = Math.max(120, Math.round(w * 0.16));
-  const scale = logoW / logo.width;
-  const logoH = Math.round(logo.height * scale);
-  const pad = Math.max(16, Math.round(Math.min(w, h) * 0.02));
-  const x = w - logoW - pad;
-  const y = h - logoH - pad;
-
-  g.fillStyle = "rgba(255,255,255,0.85)";
-  const br = Math.round(logoH * 0.18);
-  g.beginPath();
-  g.moveTo(x+br, y);
-  g.arcTo(x+logoW, y, x+logoW, y+logoH, br);
-  g.arcTo(x+logoW, y+logoH, x, y+logoH, br);
-  g.arcTo(x, y+logoH, x, y, br);
-  g.arcTo(x, y, x+logoW, y, br);
-  g.closePath();
-  g.fill();
-
-  g.drawImage(logo, x, y, logoW, logoH);
-  return c.toDataURL("image/png");
-}
-
-  /* ===== ensureBase64String (главный фикс для v8) ===== */
-function ensureBase64String(b64) {
-  // Если строка — просто убрать data:image/...
-  if (typeof b64 === "string") {
-    return b64.replace(/^data:image\/[^;]+;base64,/, "");
-  }
-
-  // Если массив чисел — конвертация
-  if (Array.isArray(b64)) {
-    return btoa(String.fromCharCode(...new Uint8Array(b64)));
-  }
-
-  // Если Uint8Array — тоже конвертация
-  if (b64 instanceof Uint8Array) {
-    return btoa(String.fromCharCode(...b64));
-  }
-
-  // Все остальные случаи → пустая строка
-  return "";
-}
-
-/* ===== основной пайплайн ===== */
-async function generate() {
+async function generate(){
   if (!file) return;
 
-  statusEl.innerText = "Шаг 1/2: подготовка фото…";
-  resultBox.style.display = "none";
-  download.style.display = "none";
+  resultBox.style.display="none";
   hideErr();
+  if (SHOW_LOGS) logsEl.style.display="none";
+  statusEl.innerText="Подготовка фото…";
 
   try {
-    const { w, h, dataUrl, b64 } = await resizeFile(file);
+    const { w,h,b64 } = await resizeFile(file);
 
-    statusEl.innerText = "Шаг 2/2: создаём образ…";
+    if (!b64 || b64.length < 50)
+      return showErr("Ошибка: base64 изображение пустое");
 
-    // --- главное: чистая строка b64 ---
-    let imgB64 = ensureBase64String(b64);
+    statusEl.innerText="Запрос к AI…";
 
-    if (!imgB64 || imgB64.length < 50) {
-      return showErr("Ошибка: изображение не преобразовалось в base64");
-    }
-
-    const fd = new FormData();
-    fd.append("mode", "role-img2img");
-    fd.append("image_b64", imgB64);
-    fd.append("width", String(w));
-    fd.append("height", String(h));
-    fd.append("num_steps", "16");
-    fd.append("guidance", "7.5");
-    fd.append("strength", "0.72");
+    const fd=new FormData();
+    fd.append("mode","role-img2img");
+    fd.append("image_b64", b64);
+    fd.append("width", w);
+    fd.append("height", h);
+    fd.append("num_steps", 16);
+    fd.append("guidance", 7.5);
+    fd.append("strength", 0.72);
     fd.append("role", role);
     fd.append("prompt", rolePrompt(role));
 
-    let r;
-    try {
-      r = await fetch(`${API_BASE}/api/safe-edit`, {
-        method: "POST",
-        body: fd,
-      });
-    } catch (err) {
-      return showErr("Не удалось обратиться к AI: " + err.message);
-    }
+    const r=await fetch(API_BASE+"/api/safe-edit",{ method:"POST", body:fd });
+    const txt=await r.text();
 
-    const txt = await r.text();
-    let j;
-    try {
-      j = JSON.parse(txt);
-    } catch {
-      return showErr("Сервер вернул не-JSON");
-    }
+    let j; try{ j=JSON.parse(txt);}catch{ j={raw:txt}; }
 
-    log({ stage: "role-img2img", status: r.status, resp: j });
+    log(j);
 
-    if (!r.ok || !j.imageBase64) {
-      return showErr(j.error || j.details || "Ошибка AI");
-    }
+    if (!r.ok || !j.imageBase64)
+      return showErr("AI ошибка:\n"+(j.error||"")+"\n"+(j.details||""));
 
-    let outUrl = "data:image/png;base64," + j.imageBase64;
-    outUrl = await composeLogoOver(outUrl);
+    const outUrl="data:image/png;base64,"+j.imageBase64;
 
-    resultImg.src = outUrl;
-    resultBox.style.display = "block";
-    download.href = outUrl;
-    download.style.display = "inline-block";
+    resultImg.src=outUrl;
+    download.href=outUrl;
+    resultBox.style.display="block";
 
-    statusEl.innerText = "Готово ✓ · образ сгенерирован";
-
-  } catch (e) {
-    showErr(e.message || "Неизвестная ошибка");
+    statusEl.innerText="Готово!";
+  } catch(e){
+    showErr("Ошибка: "+e.message);
   }
 }
 </script>

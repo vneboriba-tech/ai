@@ -187,16 +187,41 @@ async function generate(){
 
     statusEl.innerText="Запрос к AI…";
 
-    const fd=new FormData();
-    fd.append("mode","role-img2img");
-    fd.append("image_b64", b64);
-    fd.append("width", w);
-    fd.append("height", h);
-    fd.append("num_steps", 16);
-    fd.append("guidance", 7.5);
-    fd.append("strength", 0.72);
-    fd.append("role", role);
-    fd.append("prompt", rolePrompt(role));
+   // --- 100% гарантия, что image_b64 — строка ---
+let imgB64 = b64;
+
+// удаляем возможные мусорные переносы, пробелы
+imgB64 = String(imgB64).trim();
+
+// если вдруг пришёл массив — склеиваем
+if (Array.isArray(imgB64)) {
+  imgB64 = imgB64.join("");
+}
+
+// если тип всё ещё не строка — превращаем в строку
+if (typeof imgB64 !== "string") {
+  imgB64 = String(imgB64);
+}
+
+// Проверка на валидность
+if (!imgB64 || imgB64.length < 50) {
+  return showErr("Ошибка: base64 изображения слишком короткое или повреждено");
+}
+
+// теперь создаём форму
+const fd = new FormData();
+fd.append("mode", "role-img2img");
+
+// главное изменение → отправляем СТРОКУ base64
+fd.append("image_b64", imgB64);
+
+fd.append("width", String(w));
+fd.append("height", String(h));
+fd.append("num_steps", "16");
+fd.append("guidance", "7.5");
+fd.append("strength", "0.72");
+fd.append("role", role);
+fd.append("prompt", rolePrompt(role));
 
     const r=await fetch(API_BASE+"/api/safe-edit",{ method:"POST", body:fd });
     const txt=await r.text();

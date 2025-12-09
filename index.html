@@ -257,6 +257,27 @@ async function composeLogoOver(imgDataUrl){
   return c.toDataURL("image/png");
 }
 
+  /* ===== ensureBase64String (главный фикс для v8) ===== */
+function ensureBase64String(b64) {
+  // Если строка — просто убрать data:image/...
+  if (typeof b64 === "string") {
+    return b64.replace(/^data:image\/[^;]+;base64,/, "");
+  }
+
+  // Если массив чисел — конвертация
+  if (Array.isArray(b64)) {
+    return btoa(String.fromCharCode(...new Uint8Array(b64)));
+  }
+
+  // Если Uint8Array — тоже конвертация
+  if (b64 instanceof Uint8Array) {
+    return btoa(String.fromCharCode(...b64));
+  }
+
+  // Все остальные случаи → пустая строка
+  return "";
+}
+
 /* ===== основной пайплайн ===== */
 async function generate() {
   if (!file) return;

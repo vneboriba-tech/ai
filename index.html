@@ -80,14 +80,19 @@
 </div>
 
 <script>
+/** ====== ВРЕМЕННО: работаем на /api/safe-edit-raw ====== **/
 const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev";
+
+// Портретный кадр (стабильнее) + быстрее
 const CANVAS_W = 640;
 const CANVAS_H = 960;
+
 const MAX_MB = 12;
 
-const DEFAULT_STEPS = 20;
-const DEFAULT_GUIDANCE = 6.5;
-const DEFAULT_STRENGTH = 0.55;
+// Параметры под “похоже на тебя + реализм”
+const DEFAULT_STEPS = 18;
+const DEFAULT_GUIDANCE = 5.5;
+const DEFAULT_STRENGTH = 0.36;
 
 let file = null;
 let role = "журналист";
@@ -128,7 +133,7 @@ function readAsDataURL(f){
   });
 }
 
-// ✅ ВАЖНО: contain/letterbox (НЕ crop)
+// ✅ contain/letterbox (не кропаем лицо)
 async function resizeFile(f){
   const dataURL = await readAsDataURL(f);
   const img = await new Promise((res, rej) => {
@@ -147,7 +152,6 @@ async function resizeFile(f){
   g.fillStyle = "#ffffff";
   g.fillRect(0, 0, c.width, c.height);
 
-  // contain scale
   const scale = Math.min(CANVAS_W / img.width, CANVAS_H / img.height);
   const dw = img.width * scale;
   const dh = img.height * scale;
@@ -160,7 +164,7 @@ async function resizeFile(f){
   return out.split(",")[1];
 }
 
-// logo
+/** ====== LOGO overlay ====== **/
 let logoPromise = null;
 function loadLogo(){
   if (logoPromise) return logoPromise;
@@ -195,12 +199,13 @@ async function addLogoToBlobPng(pngBlob){
   c.height = img.naturalHeight || img.height;
   const g = c.getContext("2d");
 
-  // белый фон (без “чёрной прозрачности”)
+  // белый фон (на случай прозрачности)
   g.fillStyle = "#ffffff";
   g.fillRect(0, 0, c.width, c.height);
 
   g.drawImage(img, 0, 0, c.width, c.height);
 
+  // логотип внизу по центру
   const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
   const ratio = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
   const targetH = Math.round(targetW / ratio);
@@ -210,12 +215,21 @@ async function addLogoToBlobPng(pngBlob){
   const y = c.height - targetH - margin;
 
   g.drawImage(logo, x, y, targetW, targetH);
+
   return c.toDataURL("image/png");
 }
 
+// Добавка “реализм без кино-эффектов”.
+// Роль/окружение задаёт воркер, чтобы кнопки реально отличались.
 function extraPrompt(){
-  // только реализм, роль и “одежда” — в воркере
-  return "photorealistic, realistic proportions, sharp focus, realistic lighting";
+  return [
+    "real documentary editorial photo",
+    "realistic colors",
+    "no cinematic blur",
+    "no letterbox",
+    "no artistic effects",
+    "sharp face"
+  ].join(", ");
 }
 
 input.onchange = e => {
@@ -280,9 +294,9 @@ async function generate(){
 
     const blob = await resp.blob();
 
-    // если снова чёрная заглушка — она будет маленькой
-    if (blob.size < 4000) {
-      showErr("AI вернул подозрительно маленькую картинку (" + blob.size + " bytes). Это похоже на safety-заглушку.\nПопробуй другое фото (не скриншот) и повтори.");
+    // Если вдруг опять “заглушка” — будет очень маленькой
+    if (!blob || blob.size < 4000) {
+      showErr("AI вернул подозрительно маленькую картинку (" + (blob?.size || 0) + " bytes). Попробуй другое фото (не скриншот) или повтори.");
       return;
     }
 

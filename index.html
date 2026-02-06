@@ -80,30 +80,31 @@
 </div>
 
 <script>
-/* ================= НАСТРОЙКИ ================= */
-const API_BASE = "https://media-gen-worker2.vneboriba.workers.dev";
-const CANVAS_W = 720;
-const CANVAS_H = 1024;
+/** ====== ВРЕМЕННЫЙ режим RAW, пока выясняем ошибку ====== **/
+const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev";
+
+// Для full-body лучше вертикаль и чуть меньше (быстрее)
+const CANVAS_W = 640;
+const CANVAS_H = 960;
+
 const MAX_MB = 12;
 
-const DEFAULT_STEPS = 20;
-const DEFAULT_GUIDANCE = 7.0;
-const DEFAULT_STRENGTH = 0.55;
+// Параметры (баланс реализм/лицо/скорость)
+const DEFAULT_STEPS = 18;
+const DEFAULT_GUIDANCE = 6.0;
+const DEFAULT_STRENGTH = 0.33;
 
-/* ================= STATE ================= */
 let file = null;
 let role = "журналист";
 
-/* ================= UI ================= */
-const input = document.getElementById("fileInput");
-const picked = document.getElementById("picked");
-const statusEl = document.getElementById("status");
-const errEl = document.getElementById("error");
+const input     = document.getElementById("fileInput");
+const picked    = document.getElementById("picked");
+const statusEl  = document.getElementById("status");
+const errEl     = document.getElementById("error");
 const resultBox = document.getElementById("resultBox");
 const resultImg = document.getElementById("resultImg");
-const download = document.getElementById("download");
+const download  = document.getElementById("download");
 
-/* ================= HELPERS ================= */
 function showErr(msg){
   errEl.innerText = msg;
   errEl.style.display = "block";
@@ -124,7 +125,7 @@ document.querySelectorAll(".role").forEach(btn=>{
 });
 
 function readAsDataURL(f){
-  return new Promise((res,rej)=>{
+  return new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(r.result);
     r.onerror = rej;
@@ -132,39 +133,94 @@ function readAsDataURL(f){
   });
 }
 
+// Подготовка: crop-cover в нужный размер, JPEG base64
 async function resizeFile(f){
   const dataURL = await readAsDataURL(f);
-  const img = await new Promise((res,rej)=>{
+  const img = await new Promise((res, rej) => {
     const i = new Image();
     i.onload = () => res(i);
-    i.onerror = rej;
+    i.onerror = () => rej(new Error("Не удалось открыть изображение. Если это HEIC/HEIF — конвертируйте в JPG/PNG."));
     i.src = dataURL;
   });
 
   const c = document.createElement("canvas");
-  c.width = CANVAS_W;
+  c.width  = CANVAS_W;
   c.height = CANVAS_H;
-  const g = c.getContext("2d");
+  const g = c.getContext("2d", { alpha:false });
 
-  const scale = Math.max(CANVAS_W/img.width, CANVAS_H/img.height);
-  const dw = img.width*scale;
-  const dh = img.height*scale;
-  const dx = (CANVAS_W-dw)/2;
-  const dy = (CANVAS_H-dh)/2;
+  const scale = Math.max(CANVAS_W / img.width, CANVAS_H / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  const dx = (CANVAS_W - dw) / 2;
+  const dy = (CANVAS_H - dh) / 2;
 
   g.drawImage(img, dx, dy, dw, dh);
 
-  const out = c.toDataURL("image/jpeg", 0.9);
+  const out = c.toDataURL("image/jpeg", 0.90);
   return out.split(",")[1];
 }
 
-/* ================= EVENTS ================= */
+// ====== ЛОГО ======
+let logoPromise = null;
+function loadLogo(){
+  if (logoPromise) return logoPromise;
+  logoPromise = new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error("logo.png не найден рядом с index.html"));
+    img.src = "logo.png";
+  });
+  return logoPromise;
+}
+
+async function blobToImage(blob){
+  const url = URL.createObjectURL(blob);
+  try {
+    return await new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = rej;
+      img.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function addLogoToBlobPng(pngBlob){
+  const [img, logo] = await Promise.all([blobToImage(pngBlob), loadLogo()]);
+
+  const c = document.createElement("canvas");
+  c.width  = img.naturalWidth || img.width;
+  c.height = img.naturalHeight || img.height;
+  const g = c.getContext("2d");
+
+  g.drawImage(img, 0, 0, c.width, c.height);
+
+  const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
+  const ratio = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
+  const targetH = Math.round(targetW / ratio);
+
+  const margin = Math.round(c.width * 0.03);
+  const x = Math.round((c.width - targetW) / 2);
+  const y = c.height - targetH - margin;
+
+  g.drawImage(logo, x, y, targetW, targetH);
+
+  return c.toDataURL("image/png");
+}
+
+// Лёгкий усилитель реализма (без описания роли — роль добавит воркер)
+function extraPrompt(){
+  return "photorealistic, realistic proportions, natural skin texture, sharp focus, realistic lighting";
+}
+
 input.onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
 
-  if (!f.type.startsWith("image/")) return showErr("Нужен файл изображения");
-  if (f.size > MAX_MB*1024*1024) return showErr("Файл слишком большой");
+  if (!f.type || !f.type.startsWith("image/")) return showErr("Нужен файл изображения (JPG/PNG/WEBP/GIF).");
+  if (f.size > MAX_MB * 1024 * 1024) return showErr("Файл слишком большой (максимум 12 МБ).");
 
   file = f;
   picked.innerText = "Вы выбрали: " + f.name;
@@ -173,49 +229,58 @@ input.onchange = e => {
 };
 
 async function generate(){
+  if (!file) return;
+
   resultBox.style.display = "none";
+  download.removeAttribute("href");
   hideErr();
-  statusEl.innerText = "Подготовка фото…";
+
+  statusEl.innerText = "Шаг 1/2: подготовка фото…";
 
   try {
     const imgB64 = await resizeFile(file);
-    statusEl.innerText = "Генерация…";
+    if (!imgB64 || imgB64.length < 50) {
+      showErr("Ошибка: base64 изображения пустое или слишком короткое");
+      return;
+    }
+
+    statusEl.innerText = "Шаг 2/2: генерация…";
 
     const fd = new FormData();
     fd.append("image_b64", imgB64);
-    fd.append("width", CANVAS_W);
-    fd.append("height", CANVAS_H);
-    fd.append("num_steps", DEFAULT_STEPS);
-    fd.append("guidance", DEFAULT_GUIDANCE);
-    fd.append("strength", DEFAULT_STRENGTH);
-    fd.append("prompt", "photorealistic portrait");
+    fd.append("width", String(CANVAS_W));
+    fd.append("height", String(CANVAS_H));
+    fd.append("num_steps", String(DEFAULT_STEPS));
+    fd.append("guidance", String(DEFAULT_GUIDANCE));
+    fd.append("strength", String(DEFAULT_STRENGTH));
 
-    const resp = await fetch(API_BASE + "/api/img2img-raw", {
+    // роли
+    fd.append("role", role);
+    fd.append("prompt", extraPrompt());
+
+    const resp = await fetch(API_BASE + "/api/safe-edit-raw", {
       method: "POST",
-      body: fd
+      body: fd,
     });
 
     if (!resp.ok) {
       const txt = await resp.text();
-      throw new Error(txt || "AI error");
+      showErr("AI ошибка:\n" + (txt || ("HTTP " + resp.status)));
+      return;
     }
 
     const blob = await resp.blob();
-    const pngB64 = await new Promise((res,rej)=>{
-      const r = new FileReader();
-      r.onload = ()=>res(r.result.split(",")[1]);
-      r.onerror = rej;
-      r.readAsDataURL(blob);
-    });
 
-    const finalUrl = "data:image/png;base64," + pngB64;
+    statusEl.innerText = "Финал: добавляю логотип…";
+    const finalPngUrl = await addLogoToBlobPng(blob);
 
-    resultImg.src = finalUrl;
-    download.href = finalUrl;
+    resultImg.src = finalPngUrl;
+    download.href = finalPngUrl;
     resultBox.style.display = "block";
     statusEl.innerText = "Готово!";
-  } catch(e){
-    showErr("Ошибка: " + e.message);
+  } catch (e) {
+    console.error(e);
+    showErr("Ошибка: " + (e.message || e));
   }
 }
 </script>

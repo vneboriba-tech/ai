@@ -80,16 +80,13 @@
 </div>
 
 <script>
-/** ====== ВРЕМЕННЫЙ режим RAW, пока выясняем ошибку ====== **/
+/** ====== ВРЕМЕННЫЙ режим RAW, пока выясняем качество/ответ модели ====== **/
 const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev";
 
-// Для full-body лучше вертикаль и чуть меньше (быстрее)
 const CANVAS_W = 640;
 const CANVAS_H = 960;
-
 const MAX_MB = 12;
 
-// Параметры (баланс реализм/лицо/скорость)
 const DEFAULT_STEPS = 18;
 const DEFAULT_GUIDANCE = 6.0;
 const DEFAULT_STRENGTH = 0.33;
@@ -133,7 +130,6 @@ function readAsDataURL(f){
   });
 }
 
-// Подготовка: crop-cover в нужный размер, JPEG base64
 async function resizeFile(f){
   const dataURL = await readAsDataURL(f);
   const img = await new Promise((res, rej) => {
@@ -147,6 +143,10 @@ async function resizeFile(f){
   c.width  = CANVAS_W;
   c.height = CANVAS_H;
   const g = c.getContext("2d", { alpha:false });
+
+  // белый фон, чтобы вход был “фото”, а не прозрачность
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, c.width, c.height);
 
   const scale = Math.max(CANVAS_W / img.width, CANVAS_H / img.height);
   const dw = img.width * scale;
@@ -179,7 +179,7 @@ async function blobToImage(blob){
     return await new Promise((res, rej) => {
       const img = new Image();
       img.onload = () => res(img);
-      img.onerror = rej;
+      img.onerror = () => rej(new Error("Ответ от AI не является картинкой (не удалось декодировать изображение)."));
       img.src = url;
     });
   } finally {
@@ -195,8 +195,14 @@ async function addLogoToBlobPng(pngBlob){
   c.height = img.naturalHeight || img.height;
   const g = c.getContext("2d");
 
+  // ✅ ВАЖНО: белый фон, чтобы PNG не выглядел “чёрным” при прозрачности
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, c.width, c.height);
+
+  // основная картинка
   g.drawImage(img, 0, 0, c.width, c.height);
 
+  // логотип
   const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
   const ratio = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
   const targetH = Math.round(targetW / ratio);
@@ -210,9 +216,9 @@ async function addLogoToBlobPng(pngBlob){
   return c.toDataURL("image/png");
 }
 
-// Лёгкий усилитель реализма (без описания роли — роль добавит воркер)
 function extraPrompt(){
-  return "photorealistic, realistic proportions, natural skin texture, sharp focus, realistic lighting";
+  // роль добавит воркер; здесь только “фото-реализм” + запрет на живопись
+  return "photorealistic, realistic proportions, natural skin texture, sharp focus, realistic lighting, not painting, not illustration, no brush strokes";
 }
 
 input.onchange = e => {
@@ -253,8 +259,6 @@ async function generate(){
     fd.append("num_steps", String(DEFAULT_STEPS));
     fd.append("guidance", String(DEFAULT_GUIDANCE));
     fd.append("strength", String(DEFAULT_STRENGTH));
-
-    // роли
     fd.append("role", role);
     fd.append("prompt", extraPrompt());
 
@@ -263,13 +267,28 @@ async function generate(){
       body: fd,
     });
 
+    // Если это не image/* — считаем это ошибкой и показываем текст
+    const ct = (resp.headers.get("content-type") || "").toLowerCase();
+
     if (!resp.ok) {
       const txt = await resp.text();
       showErr("AI ошибка:\n" + (txt || ("HTTP " + resp.status)));
       return;
     }
 
+    if (!ct.startsWith("image/")) {
+      const txt = await resp.text();
+      showErr("AI вернул не картинку.\ncontent-type: " + ct + "\n" + (txt || ""));
+      return;
+    }
+
     const blob = await resp.blob();
+
+    // Мини-проверка: если совсем маленький файл — обычно это невалидная “картинка”
+    if (!blob || blob.size < 2048) {
+      showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Похоже на пустой ответ.");
+      return;
+    }
 
     statusEl.innerText = "Финал: добавляю логотип…";
     const finalPngUrl = await addLogoToBlobPng(blob);

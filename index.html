@@ -258,8 +258,6 @@ async function generate(){
   statusEl.innerText = "Шаг 1/2: отправляю запрос к AI…";
 
   try {
-    // ⚠️ HF Serverless сейчас не использует фото, но мы сохраняем UX “загрузки фото”.
-    // На следующем шаге мы попробуем пайплайн, который учитывает изображение/похожесть.
     const prompt = rolePrompt(role);
 
     const resp = await fetch(API_BASE + "/api/hf-image", {
@@ -274,6 +272,62 @@ async function generate(){
         guidance: HF_GUIDANCE
       })
     });
+
+    const txt = await resp.text();
+    let j;
+    try { j = JSON.parse(txt); } catch { j = { raw: txt }; }
+
+    if (!resp.ok || !j.imageBase64) {
+      // 🔥 ВАЖНО: показываем максимум информации из воркера/HF
+      let details = "";
+
+      // 1) Если воркер вернул структуру hf: {status, json, contentType...}
+      if (j && j.hf) {
+        const hf = j.hf;
+        details =
+          "worker_error: " + (j.error || "unknown") + "\n" +
+          "hf_status: " + (hf.status ?? "n/a") + "\n" +
+          "hf_contentType: " + (hf.contentType ?? "n/a") + "\n\n" +
+          "hf_body:\n" + JSON.stringify(hf.json ?? hf, null, 2);
+      }
+      // 2) Если просто error/details/raw
+      else {
+        details =
+          (j.error   ? j.error + "\n" : "") +
+          (j.details ? j.details + "\n" : "") +
+          (j.raw     ? j.raw : txt);
+      }
+
+      showErr("AI ошибка:\n" + details);
+      return;
+    }
+
+    statusEl.innerText = "Шаг 2/2: добавляю логотип…";
+
+    // base64 -> blob
+    const b64 = j.imageBase64;
+    const byteChars = atob(b64);
+    const byteNums = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+    const byteArray = new Uint8Array(byteNums);
+    const blob = new Blob([byteArray], { type: j.contentType || "image/png" });
+
+    if (!blob || blob.size < 4000) {
+      showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Подожди 30–60 сек и нажми ещё раз (модель может прогружаться).");
+      return;
+    }
+
+    const finalPngUrl = await addLogoToBlobPng(blob);
+
+    resultImg.src = finalPngUrl;
+    download.href = finalPngUrl;
+    resultBox.style.display = "block";
+    statusEl.innerText = "Готово!";
+  } catch (e) {
+    console.error(e);
+    showErr("Ошибка: " + (e.message || e));
+  }
+}
 
     const txt = await resp.text();
     let j;

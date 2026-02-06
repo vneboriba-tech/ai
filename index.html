@@ -44,9 +44,6 @@
 
     .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; }
     .btn:hover { background:#059669; }
-
-    pre#logs { text-align:left; background:#0b1020; color:#cbd5e1; padding:12px;
-      border-radius:12px; overflow:auto; max-height:260px; font-size:12px; display:none; }
   </style>
 </head>
 
@@ -54,7 +51,7 @@
 <div class="container">
   <header><h1>Почувствуй себя журналистом</h1></header>
 
-  <div class="uploader" id="dropzone">
+  <div class="uploader">
     <img src="logo.png" class="logo" alt="">
     <div class="headline">Загрузите фото</div>
     <div class="sub">JPG, PNG, WEBP, GIF до 12 МБ</div>
@@ -80,44 +77,33 @@
       <a id="download" class="btn" download="result.png">Скачать PNG</a>
     </div>
   </div>
-
-  <pre id="logs"></pre>
 </div>
 
 <script>
-/** ====== НАСТРОЙКИ ====== **/
-const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev";
-const CANVAS_W   = 720;
-const CANVAS_H   = 1024;
-const MAX_MB     = 12;
-const SHOW_LOGS  = false;         // быстрее и чище
-const REQ_TIMEOUT_MS = 90000;     // 90 сек
-const RETRY_ONCE = true;
+/* ================= НАСТРОЙКИ ================= */
+const API_BASE = "https://media-gen-worker2.vneboriba.workers.dev";
+const CANVAS_W = 720;
+const CANVAS_H = 1024;
+const MAX_MB = 12;
 
-// Параметры качества/сохранения лица:
-const DEFAULT_STEPS    = 20;
+const DEFAULT_STEPS = 20;
 const DEFAULT_GUIDANCE = 7.0;
 const DEFAULT_STRENGTH = 0.55;
 
-/** ====== UI refs ====== **/
+/* ================= STATE ================= */
 let file = null;
 let role = "журналист";
 
-const input     = document.getElementById("fileInput");
-const picked    = document.getElementById("picked");
-const statusEl  = document.getElementById("status");
-const errEl     = document.getElementById("error");
+/* ================= UI ================= */
+const input = document.getElementById("fileInput");
+const picked = document.getElementById("picked");
+const statusEl = document.getElementById("status");
+const errEl = document.getElementById("error");
 const resultBox = document.getElementById("resultBox");
 const resultImg = document.getElementById("resultImg");
-const download  = document.getElementById("download");
-const logsEl    = document.getElementById("logs");
+const download = document.getElementById("download");
 
-/** ====== helpers ====== **/
-function log(o){
-  if (!SHOW_LOGS) return;
-  logsEl.style.display = "block";
-  logsEl.textContent = typeof o === "string" ? o : JSON.stringify(o, null, 2);
-}
+/* ================= HELPERS ================= */
 function showErr(msg){
   errEl.innerText = msg;
   errEl.style.display = "block";
@@ -137,144 +123,48 @@ document.querySelectorAll(".role").forEach(btn=>{
   };
 });
 
-// Быстрая загрузка logo.png один раз
-let logoImgPromise = null;
-function getLogoImage(){
-  if (logoImgPromise) return logoImgPromise;
-  logoImgPromise = new Promise((res, rej) => {
-    const img = new Image();
-    img.onload = () => res(img);
-    img.onerror = () => rej(new Error("Не удалось загрузить logo.png (проверь, что файл лежит рядом с index.html)"));
-    img.src = "logo.png";
-  });
-  return logoImgPromise;
-}
-
-// Быстрый decode: createImageBitmap (обычно быстрее, чем new Image())
-async function decodeToBitmap(dataURL){
-  const blob = await (await fetch(dataURL)).blob();
-  // createImageBitmap может упасть на экзотике — ловим ошибку
-  try {
-    return await createImageBitmap(blob);
-  } catch {
-    // fallback через <img>
-    return await new Promise((res, rej) => {
-      const img = new Image();
-      img.onload = () => res(img);
-      img.onerror = rej;
-      img.src = dataURL;
-    });
-  }
-}
-
-async function readAsDataURL(f){
-  return new Promise((res, rej) => {
+function readAsDataURL(f){
+  return new Promise((res,rej)=>{
     const r = new FileReader();
-    r.onload  = () => res(r.result);
+    r.onload = () => res(r.result);
     r.onerror = rej;
     r.readAsDataURL(f);
   });
 }
 
-// Подготовка фото: cover-кроп, JPEG base64 (быстро и экономно)
 async function resizeFile(f){
   const dataURL = await readAsDataURL(f);
-
-  let bmp;
-  try {
-    bmp = await decodeToBitmap(dataURL);
-  } catch (e) {
-    // Часто это HEIC/HEIF
-    throw new Error("Не удалось открыть изображение. Если это HEIC/HEIF — конвертируйте в JPG/PNG и попробуйте снова.");
-  }
-
-  const c = document.createElement("canvas");
-  c.width  = CANVAS_W;
-  c.height = CANVAS_H;
-  const g = c.getContext("2d", { alpha: false, desynchronized: true });
-
-  const iw = bmp.width  || bmp.naturalWidth;
-  const ih = bmp.height || bmp.naturalHeight;
-
-  const scale = Math.max(CANVAS_W / iw, CANVAS_H / ih);
-  const dw    = iw * scale;
-  const dh    = ih * scale;
-  const dx    = (CANVAS_W - dw) / 2;
-  const dy    = (CANVAS_H - dh) / 2;
-
-  g.drawImage(bmp, dx, dy, dw, dh);
-
-  // JPEG быстрее и меньше размером для передачи в worker
-  const out = c.toDataURL("image/jpeg", 0.90);
-  const b64 = out.split(",")[1];
-
-  return { w: CANVAS_W, h: CANVAS_H, b64 };
-}
-
-// Промпт сцены НЕ отправляем (чтобы не дублировать с воркером).
-// Можно оставить только усилители реализма — но даже их можно пустыми.
-function extraPrompt(){
-  return "ultra realistic, high detail, natural skin texture, sharp focus";
-}
-
-async function fetchWithTimeout(url, opts, timeoutMs){
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const resp = await fetch(url, { ...opts, signal: ctrl.signal });
-    return resp;
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-// Наложение логотипа на результат и экспорт PNG
-async function makePngWithLogo(base64Png){
-  const src = "data:image/png;base64," + base64Png;
-
-  // декодим результат
-  const img = await new Promise((res, rej) => {
+  const img = await new Promise((res,rej)=>{
     const i = new Image();
     i.onload = () => res(i);
     i.onerror = rej;
-    i.src = src;
+    i.src = dataURL;
   });
 
-  const logo = await getLogoImage();
-
   const c = document.createElement("canvas");
-  c.width  = img.naturalWidth || img.width;
-  c.height = img.naturalHeight || img.height;
+  c.width = CANVAS_W;
+  c.height = CANVAS_H;
   const g = c.getContext("2d");
 
-  g.drawImage(img, 0, 0, c.width, c.height);
+  const scale = Math.max(CANVAS_W/img.width, CANVAS_H/img.height);
+  const dw = img.width*scale;
+  const dh = img.height*scale;
+  const dx = (CANVAS_W-dw)/2;
+  const dy = (CANVAS_H-dh)/2;
 
-  // Размер логотипа: ~14% ширины, с лимитами
-  const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
-  const ratio   = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
-  const targetH = Math.round(targetW / ratio);
+  g.drawImage(img, dx, dy, dw, dh);
 
-  const margin  = Math.round(c.width * 0.03);
-  const x = Math.round((c.width - targetW) / 2);
-  const y = c.height - targetH - margin;
-
-  // Лого рисуем без прозрачности (можно менять, если нужно)
-  g.drawImage(logo, x, y, targetW, targetH);
-
-  return c.toDataURL("image/png"); // итоговый PNG
+  const out = c.toDataURL("image/jpeg", 0.9);
+  return out.split(",")[1];
 }
 
-/** ====== events ====== **/
+/* ================= EVENTS ================= */
 input.onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
 
-  if (!f.type || !f.type.startsWith("image/")) {
-    return showErr("Нужен файл изображения (JPG/PNG/WEBP/GIF).");
-  }
-  if (f.size > MAX_MB * 1024 * 1024) {
-    return showErr("Файл слишком большой (максимум 12 МБ).");
-  }
+  if (!f.type.startsWith("image/")) return showErr("Нужен файл изображения");
+  if (f.size > MAX_MB*1024*1024) return showErr("Файл слишком большой");
 
   file = f;
   picked.innerText = "Вы выбрали: " + f.name;
@@ -283,89 +173,49 @@ input.onchange = e => {
 };
 
 async function generate(){
-  if (!file) return;
-
   resultBox.style.display = "none";
-  download.removeAttribute("href");
   hideErr();
-  if (SHOW_LOGS) logsEl.style.display = "none";
-  statusEl.innerText = "Шаг 1/2: подготовка фото…";
+  statusEl.innerText = "Подготовка фото…";
 
   try {
-    const { w, h, b64 } = await resizeFile(file);
-    log({ stage: "resizeFile", width: w, height: h, b64len: b64?.length });
-
-    if (!b64 || b64.length < 50) {
-      showErr("Ошибка: base64 изображения пустое или слишком короткое");
-      return;
-    }
-
-    statusEl.innerText = "Шаг 2/2: запрос к AI…";
-
-    // чистая base64-строка
-    const imgB64 = String(b64).trim();
+    const imgB64 = await resizeFile(file);
+    statusEl.innerText = "Генерация…";
 
     const fd = new FormData();
-    fd.append("mode", "role-img2img");
     fd.append("image_b64", imgB64);
-    fd.append("width",  String(w));
-    fd.append("height", String(h));
+    fd.append("width", CANVAS_W);
+    fd.append("height", CANVAS_H);
+    fd.append("num_steps", DEFAULT_STEPS);
+    fd.append("guidance", DEFAULT_GUIDANCE);
+    fd.append("strength", DEFAULT_STRENGTH);
+    fd.append("prompt", "photorealistic portrait");
 
-    // важные параметры (под твою цель — “лицо держим лучше”)
-    fd.append("num_steps", String(DEFAULT_STEPS));
-    fd.append("guidance",  String(DEFAULT_GUIDANCE));
-    fd.append("strength",  String(DEFAULT_STRENGTH));
+    const resp = await fetch(API_BASE + "/api/img2img-raw", {
+      method: "POST",
+      body: fd
+    });
 
-    fd.append("role", role);
-
-    // ВАЖНО: не дублируем сцену! (воркер сам добавит базовый роль-промпт)
-    fd.append("prompt", extraPrompt());
-
-    const doRequest = async () => {
-      const resp = await fetch(API_BASE + "/api/img2img-raw", {
-        method: "POST",
-        body: fd,
-      }, REQ_TIMEOUT_MS);
-
+    if (!resp.ok) {
       const txt = await resp.text();
-      let j;
-      try { j = JSON.parse(txt); } catch { j = { raw: txt }; }
-      return { resp, j };
-    };
-
-    let result = await doRequest();
-
-    // быстрый ретрай на временные ошибки
-    if (RETRY_ONCE && (!result.resp.ok) && (result.resp.status === 502 || result.resp.status === 503)) {
-      statusEl.innerText = "Повтор запроса…";
-      result = await doRequest();
+      throw new Error(txt || "AI error");
     }
 
-    const { resp, j } = result;
+    const blob = await resp.blob();
+    const pngB64 = await new Promise((res,rej)=>{
+      const r = new FileReader();
+      r.onload = ()=>res(r.result.split(",")[1]);
+      r.onerror = rej;
+      r.readAsDataURL(blob);
+    });
 
-    log({ stage: "afterFetch", status: resp.status, resp: j });
+    const finalUrl = "data:image/png;base64," + pngB64;
 
-    if (!resp.ok || !j.imageBase64) {
-      const msg =
-        "AI ошибка:\n" +
-        (j.error   ? j.error   + "\n" : "") +
-        (j.details ? j.details + "\n" : "") +
-        (j.raw     ? j.raw           : "");
-      showErr(msg || "Неизвестная ошибка");
-      return;
-    }
-
-    // Итог: PNG + ЛОГО (в браузере)
-    statusEl.innerText = "Финал: добавляю логотип…";
-    const finalPngUrl = await makePngWithLogo(j.imageBase64);
-
-    resultImg.src = finalPngUrl;
-    download.href = finalPngUrl;
+    resultImg.src = finalUrl;
+    download.href = finalUrl;
     resultBox.style.display = "block";
     statusEl.innerText = "Готово!";
-  } catch (e) {
-    console.error(e);
-    showErr("Ошибка: " + (e.message || e));
+  } catch(e){
+    showErr("Ошибка: " + e.message);
   }
 }
 </script>

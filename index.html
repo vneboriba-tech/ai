@@ -93,7 +93,6 @@ const OUT_H = 1024;
 const HF_STEPS = 30;
 const HF_GUIDANCE = 6.5;
 
-// Включи false, когда всё заработает (чтобы не генерировать на каждое переключение роли)
 const AUTO_REGEN_ON_ROLE_CHANGE = true;
 
 let file = null;
@@ -126,7 +125,7 @@ document.querySelectorAll(".role").forEach(btn=>{
   };
 });
 
-/** ====== LOGO overlay (оставляем как было) ====== **/
+/** ====== LOGO overlay ====== **/
 let logoPromise = null;
 function loadLogo(){
   if (logoPromise) return logoPromise;
@@ -179,7 +178,7 @@ async function addLogoToBlobPng(pngBlob){
   return c.toDataURL("image/png");
 }
 
-/** ====== РОЛИ: делаем реально разные сцены ====== **/
+/** ====== prompts ====== **/
 function rolePrompt(r){
   if (r === "журналист") {
     return [
@@ -278,10 +277,7 @@ async function generate(){
     try { j = JSON.parse(txt); } catch { j = { raw: txt }; }
 
     if (!resp.ok || !j.imageBase64) {
-      // 🔥 ВАЖНО: показываем максимум информации из воркера/HF
       let details = "";
-
-      // 1) Если воркер вернул структуру hf: {status, json, contentType...}
       if (j && j.hf) {
         const hf = j.hf;
         details =
@@ -289,9 +285,7 @@ async function generate(){
           "hf_status: " + (hf.status ?? "n/a") + "\n" +
           "hf_contentType: " + (hf.contentType ?? "n/a") + "\n\n" +
           "hf_body:\n" + JSON.stringify(hf.json ?? hf, null, 2);
-      }
-      // 2) Если просто error/details/raw
-      else {
+      } else {
         details =
           (j.error   ? j.error + "\n" : "") +
           (j.details ? j.details + "\n" : "") +
@@ -314,45 +308,6 @@ async function generate(){
 
     if (!blob || blob.size < 4000) {
       showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Подожди 30–60 сек и нажми ещё раз (модель может прогружаться).");
-      return;
-    }
-
-    const finalPngUrl = await addLogoToBlobPng(blob);
-
-    resultImg.src = finalPngUrl;
-    download.href = finalPngUrl;
-    resultBox.style.display = "block";
-    statusEl.innerText = "Готово!";
-  } catch (e) {
-    console.error(e);
-    showErr("Ошибка: " + (e.message || e));
-  }
-}
-
-    const txt = await resp.text();
-    let j;
-    try { j = JSON.parse(txt); } catch { j = { raw: txt }; }
-
-    if (!resp.ok || !j.imageBase64) {
-      // Частый случай — 503 loading
-      const details = j?.json?.error || j?.error || j?.raw || txt || ("HTTP "+resp.status);
-      showErr("AI ошибка:\n" + details);
-      return;
-    }
-
-    statusEl.innerText = "Шаг 2/2: добавляю логотип…";
-
-    // Собираем blob из base64
-    const b64 = j.imageBase64;
-    const byteChars = atob(b64);
-    const byteNums = new Array(byteChars.length);
-    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-    const byteArray = new Uint8Array(byteNums);
-    const blob = new Blob([byteArray], { type: j.contentType || "image/png" });
-
-    // Мини-проверка на “пустышку”
-    if (!blob || blob.size < 4000) {
-      showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Нажми ещё раз через 30–60 сек (модель может прогружаться).");
       return;
     }
 

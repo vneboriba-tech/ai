@@ -322,7 +322,7 @@ async function generate(){
     fd.append("prompt", extraPrompt());
 
     const doRequest = async () => {
-      const resp = await fetch(API_BASE + "/api/img2img", {
+      const resp = await fetch(API_BASE + "/api/img2img-raw", {
         method: "POST",
         body: fd,
       }, REQ_TIMEOUT_MS);

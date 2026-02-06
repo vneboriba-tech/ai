@@ -80,16 +80,14 @@
 </div>
 
 <script>
-/** ====== ВРЕМЕННЫЙ режим RAW, пока выясняем качество/ответ модели ====== **/
 const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev";
-
 const CANVAS_W = 640;
 const CANVAS_H = 960;
 const MAX_MB = 12;
 
-const DEFAULT_STEPS = 18;
-const DEFAULT_GUIDANCE = 6.0;
-const DEFAULT_STRENGTH = 0.33;
+const DEFAULT_STEPS = 20;
+const DEFAULT_GUIDANCE = 6.5;
+const DEFAULT_STRENGTH = 0.55;
 
 let file = null;
 let role = "журналист";
@@ -130,6 +128,7 @@ function readAsDataURL(f){
   });
 }
 
+// ✅ ВАЖНО: contain/letterbox (НЕ crop)
 async function resizeFile(f){
   const dataURL = await readAsDataURL(f);
   const img = await new Promise((res, rej) => {
@@ -144,11 +143,12 @@ async function resizeFile(f){
   c.height = CANVAS_H;
   const g = c.getContext("2d", { alpha:false });
 
-  // белый фон, чтобы вход был “фото”, а не прозрачность
+  // белый фон
   g.fillStyle = "#ffffff";
   g.fillRect(0, 0, c.width, c.height);
 
-  const scale = Math.max(CANVAS_W / img.width, CANVAS_H / img.height);
+  // contain scale
+  const scale = Math.min(CANVAS_W / img.width, CANVAS_H / img.height);
   const dw = img.width * scale;
   const dh = img.height * scale;
   const dx = (CANVAS_W - dw) / 2;
@@ -160,7 +160,7 @@ async function resizeFile(f){
   return out.split(",")[1];
 }
 
-// ====== ЛОГО ======
+// logo
 let logoPromise = null;
 function loadLogo(){
   if (logoPromise) return logoPromise;
@@ -179,7 +179,7 @@ async function blobToImage(blob){
     return await new Promise((res, rej) => {
       const img = new Image();
       img.onload = () => res(img);
-      img.onerror = () => rej(new Error("Ответ от AI не является картинкой (не удалось декодировать изображение)."));
+      img.onerror = () => rej(new Error("Ответ AI не декодируется как изображение."));
       img.src = url;
     });
   } finally {
@@ -195,14 +195,12 @@ async function addLogoToBlobPng(pngBlob){
   c.height = img.naturalHeight || img.height;
   const g = c.getContext("2d");
 
-  // ✅ ВАЖНО: белый фон, чтобы PNG не выглядел “чёрным” при прозрачности
+  // белый фон (без “чёрной прозрачности”)
   g.fillStyle = "#ffffff";
   g.fillRect(0, 0, c.width, c.height);
 
-  // основная картинка
   g.drawImage(img, 0, 0, c.width, c.height);
 
-  // логотип
   const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
   const ratio = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
   const targetH = Math.round(targetW / ratio);
@@ -212,13 +210,12 @@ async function addLogoToBlobPng(pngBlob){
   const y = c.height - targetH - margin;
 
   g.drawImage(logo, x, y, targetW, targetH);
-
   return c.toDataURL("image/png");
 }
 
 function extraPrompt(){
-  // роль добавит воркер; здесь только “фото-реализм” + запрет на живопись
-  return "photorealistic, realistic proportions, natural skin texture, sharp focus, realistic lighting, not painting, not illustration, no brush strokes";
+  // только реализм, роль и “одежда” — в воркере
+  return "photorealistic, realistic proportions, sharp focus, realistic lighting";
 }
 
 input.onchange = e => {
@@ -267,7 +264,6 @@ async function generate(){
       body: fd,
     });
 
-    // Если это не image/* — считаем это ошибкой и показываем текст
     const ct = (resp.headers.get("content-type") || "").toLowerCase();
 
     if (!resp.ok) {
@@ -284,9 +280,9 @@ async function generate(){
 
     const blob = await resp.blob();
 
-    // Мини-проверка: если совсем маленький файл — обычно это невалидная “картинка”
-    if (!blob || blob.size < 2048) {
-      showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Похоже на пустой ответ.");
+    // если снова чёрная заглушка — она будет маленькой
+    if (blob.size < 4000) {
+      showErr("AI вернул подозрительно маленькую картинку (" + blob.size + " bytes). Это похоже на safety-заглушку.\nПопробуй другое фото (не скриншот) и повтори.");
       return;
     }
 

@@ -80,19 +80,21 @@
 </div>
 
 <script>
-/** ====== ВРЕМЕННО: работаем на /api/safe-edit-raw ====== **/
-const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev";
-
-// Портретный кадр (стабильнее) + быстрее
-const CANVAS_W = 640;
-const CANVAS_H = 960;
+/** ====== HF через Cloudflare Worker ====== **/
+const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev"; // <-- твой домен воркера
 
 const MAX_MB = 12;
 
-// Параметры под “похоже на тебя + реализм”
-const DEFAULT_STEPS = 18;
-const DEFAULT_GUIDANCE = 5.5;
-const DEFAULT_STRENGTH = 0.36;
+// Размер генерации (под “полный рост” в SDXL логичнее вертикаль)
+const OUT_W = 768;
+const OUT_H = 1024;
+
+// Параметры качества (serverless может игнорировать часть, но не ломается)
+const HF_STEPS = 30;
+const HF_GUIDANCE = 6.5;
+
+// Включи false, когда всё заработает (чтобы не генерировать на каждое переключение роли)
+const AUTO_REGEN_ON_ROLE_CHANGE = true;
 
 let file = null;
 let role = "журналист";
@@ -120,51 +122,11 @@ document.querySelectorAll(".role").forEach(btn=>{
     document.querySelectorAll(".role").forEach(x=>x.classList.remove("active"));
     btn.classList.add("active");
     role = btn.dataset.role;
-    if (file) generate();
+    if (file && AUTO_REGEN_ON_ROLE_CHANGE) generate();
   };
 });
 
-function readAsDataURL(f){
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result);
-    r.onerror = rej;
-    r.readAsDataURL(f);
-  });
-}
-
-// ✅ contain/letterbox (не кропаем лицо)
-async function resizeFile(f){
-  const dataURL = await readAsDataURL(f);
-  const img = await new Promise((res, rej) => {
-    const i = new Image();
-    i.onload = () => res(i);
-    i.onerror = () => rej(new Error("Не удалось открыть изображение. Если это HEIC/HEIF — конвертируйте в JPG/PNG."));
-    i.src = dataURL;
-  });
-
-  const c = document.createElement("canvas");
-  c.width  = CANVAS_W;
-  c.height = CANVAS_H;
-  const g = c.getContext("2d", { alpha:false });
-
-  // белый фон
-  g.fillStyle = "#ffffff";
-  g.fillRect(0, 0, c.width, c.height);
-
-  const scale = Math.min(CANVAS_W / img.width, CANVAS_H / img.height);
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  const dx = (CANVAS_W - dw) / 2;
-  const dy = (CANVAS_H - dh) / 2;
-
-  g.drawImage(img, dx, dy, dw, dh);
-
-  const out = c.toDataURL("image/jpeg", 0.90);
-  return out.split(",")[1];
-}
-
-/** ====== LOGO overlay ====== **/
+/** ====== LOGO overlay (оставляем как было) ====== **/
 let logoPromise = null;
 function loadLogo(){
   if (logoPromise) return logoPromise;
@@ -199,13 +161,11 @@ async function addLogoToBlobPng(pngBlob){
   c.height = img.naturalHeight || img.height;
   const g = c.getContext("2d");
 
-  // белый фон (на случай прозрачности)
   g.fillStyle = "#ffffff";
   g.fillRect(0, 0, c.width, c.height);
 
   g.drawImage(img, 0, 0, c.width, c.height);
 
-  // логотип внизу по центру
   const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
   const ratio = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
   const targetH = Math.round(targetW / ratio);
@@ -219,19 +179,62 @@ async function addLogoToBlobPng(pngBlob){
   return c.toDataURL("image/png");
 }
 
-// Добавка “реализм без кино-эффектов”.
-// Роль/окружение задаёт воркер, чтобы кнопки реально отличались.
-function extraPrompt(){
+/** ====== РОЛИ: делаем реально разные сцены ====== **/
+function rolePrompt(r){
+  if (r === "журналист") {
+    return [
+      "full body photo of a single person",
+      "professional TV news journalist",
+      "standing, confident posture",
+      "modern newsroom studio background",
+      "press badge, subtle lavalier microphone",
+      "formal blazer and shirt",
+      "realistic, documentary editorial photography",
+      "natural colors, sharp focus",
+      "high detail",
+      "no text, no watermark"
+    ].join(", ");
+  }
+  if (r === "блогер") {
+    return [
+      "full body photo of a single person",
+      "lifestyle video blogger, content creator",
+      "standing, casual relaxed posture",
+      "cozy home studio or cafe background",
+      "smartphone on tripod visible",
+      "trendy casual outfit, sneakers",
+      "realistic lifestyle photography",
+      "natural colors, sharp focus",
+      "high detail",
+      "no text, no watermark"
+    ].join(", ");
+  }
   return [
-    "real documentary editorial photo",
-    "realistic colors",
-    "no cinematic blur",
-    "no letterbox",
-    "no artistic effects",
-    "sharp face"
+    "full body photo of a single person",
+    "professional photographer at work",
+    "standing, camera strap, camera in hands",
+    "photo studio with light stands and backdrop",
+    "practical dark outfit",
+    "realistic editorial photography",
+    "natural colors, sharp focus",
+    "high detail",
+    "no text, no watermark"
   ].join(", ");
 }
 
+function negativePrompt(){
+  return [
+    "painting, illustration, cartoon, anime, 3d render",
+    "cinematic, film grain, letterbox, black bars",
+    "blur, lowres, out of focus",
+    "bad anatomy, deformed, disfigured",
+    "extra limbs, extra fingers, two heads, multiple people",
+    "text, watermark, logo",
+    "nsfw, nude, underwear"
+  ].join(", ");
+}
+
+/** ====== Upload ====== **/
 input.onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
@@ -252,55 +255,53 @@ async function generate(){
   download.removeAttribute("href");
   hideErr();
 
-  statusEl.innerText = "Шаг 1/2: подготовка фото…";
+  statusEl.innerText = "Шаг 1/2: отправляю запрос к AI…";
 
   try {
-    const imgB64 = await resizeFile(file);
-    if (!imgB64 || imgB64.length < 50) {
-      showErr("Ошибка: base64 изображения пустое или слишком короткое");
-      return;
-    }
+    // ⚠️ HF Serverless сейчас не использует фото, но мы сохраняем UX “загрузки фото”.
+    // На следующем шаге мы попробуем пайплайн, который учитывает изображение/похожесть.
+    const prompt = rolePrompt(role);
 
-    statusEl.innerText = "Шаг 2/2: генерация…";
-
-    const fd = new FormData();
-    fd.append("image_b64", imgB64);
-    fd.append("width", String(CANVAS_W));
-    fd.append("height", String(CANVAS_H));
-    fd.append("num_steps", String(DEFAULT_STEPS));
-    fd.append("guidance", String(DEFAULT_GUIDANCE));
-    fd.append("strength", String(DEFAULT_STRENGTH));
-    fd.append("role", role);
-    fd.append("prompt", extraPrompt());
-
-    const resp = await fetch(API_BASE + "/api/safe-edit-raw", {
+    const resp = await fetch(API_BASE + "/api/hf-image", {
       method: "POST",
-      body: fd,
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify({
+        prompt,
+        negative_prompt: negativePrompt(),
+        width: OUT_W,
+        height: OUT_H,
+        steps: HF_STEPS,
+        guidance: HF_GUIDANCE
+      })
     });
 
-    const ct = (resp.headers.get("content-type") || "").toLowerCase();
+    const txt = await resp.text();
+    let j;
+    try { j = JSON.parse(txt); } catch { j = { raw: txt }; }
 
-    if (!resp.ok) {
-      const txt = await resp.text();
-      showErr("AI ошибка:\n" + (txt || ("HTTP " + resp.status)));
+    if (!resp.ok || !j.imageBase64) {
+      // Частый случай — 503 loading
+      const details = j?.json?.error || j?.error || j?.raw || txt || ("HTTP "+resp.status);
+      showErr("AI ошибка:\n" + details);
       return;
     }
 
-    if (!ct.startsWith("image/")) {
-      const txt = await resp.text();
-      showErr("AI вернул не картинку.\ncontent-type: " + ct + "\n" + (txt || ""));
-      return;
-    }
+    statusEl.innerText = "Шаг 2/2: добавляю логотип…";
 
-    const blob = await resp.blob();
+    // Собираем blob из base64
+    const b64 = j.imageBase64;
+    const byteChars = atob(b64);
+    const byteNums = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+    const byteArray = new Uint8Array(byteNums);
+    const blob = new Blob([byteArray], { type: j.contentType || "image/png" });
 
-    // Если вдруг опять “заглушка” — будет очень маленькой
+    // Мини-проверка на “пустышку”
     if (!blob || blob.size < 4000) {
-      showErr("AI вернул подозрительно маленькую картинку (" + (blob?.size || 0) + " bytes). Попробуй другое фото (не скриншот) или повтори.");
+      showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Нажми ещё раз через 30–60 сек (модель может прогружаться).");
       return;
     }
 
-    statusEl.innerText = "Финал: добавляю логотип…";
     const finalPngUrl = await addLogoToBlobPng(blob);
 
     resultImg.src = finalPngUrl;

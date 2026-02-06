@@ -86,7 +86,7 @@
 
 <script>
 /** ====== НАСТРОЙКИ ====== **/
-const API_BASE   = "https://media-gen-worker.vneboriba.workers.dev";
+const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev";
 const CANVAS_W   = 720;
 const CANVAS_H   = 1024;
 const MAX_MB     = 12;
@@ -322,7 +322,7 @@ async function generate(){
     fd.append("prompt", extraPrompt());
 
     const doRequest = async () => {
-      const resp = await fetchWithTimeout(API_BASE + "/api/safe-edit", {
+      const resp = await fetch(API_BASE + "/api/img2img", {
         method: "POST",
         body: fd,
       }, REQ_TIMEOUT_MS);

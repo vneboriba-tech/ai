@@ -25,7 +25,6 @@
 
     .headline { font-weight:700; font-size:18px; pointer-events:none; }
     .sub { color:var(--muted); font-size:14px; margin-top:6px; pointer-events:none; }
-
     .picked { margin-top:10px; font-size:14px; }
 
     .roles { margin-top:24px; }
@@ -39,7 +38,7 @@
     .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
     .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
 
-    .result { margin-top:24px; text-align:center; }
+    .result { margin-top:24px; text-align:center; display:none; }
     .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
 
     .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; text-decoration:none; display:inline-block; }
@@ -71,7 +70,7 @@
   <div id="status" class="status">Готово к работе</div>
   <div id="error" class="err"></div>
 
-  <div id="resultBox" class="result" style="display:none;">
+  <div id="resultBox" class="result">
     <img id="resultImg" alt="Результат">
     <div style="margin-top:12px;">
       <a id="download" class="btn" download="result.png">Скачать PNG</a>
@@ -80,30 +79,30 @@
 </div>
 
 <script>
-const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev"; // <-- замени на свой воркер
-const ENDPOINT  = "/api/safe-edit-raw";
+const API_BASE = "https://media-gen-worker2.vneboriba.workers.dev";
+const ENDPOINT = "/api/safe-edit-raw";
 
 const MAX_MB = 12;
 
+// стабильный вертикальный формат
 const CANVAS_W = 768;
 const CANVAS_H = 1024;
 
-const DEFAULT_STEPS    = 18;
+// быстрее/стабильнее для “держать лицо” (это временно, потом будем улучшать)
+const DEFAULT_STEPS = 18;
 const DEFAULT_GUIDANCE = 6.5;
 const DEFAULT_STRENGTH = 0.30;
-
-const AUTO_REGEN_ON_ROLE_CHANGE = true;
 
 let file = null;
 let role = "журналист";
 
-const input     = document.getElementById("fileInput");
-const picked    = document.getElementById("picked");
-const statusEl  = document.getElementById("status");
-const errEl     = document.getElementById("error");
+const input = document.getElementById("fileInput");
+const picked = document.getElementById("picked");
+const statusEl = document.getElementById("status");
+const errEl = document.getElementById("error");
 const resultBox = document.getElementById("resultBox");
 const resultImg = document.getElementById("resultImg");
-const download  = document.getElementById("download");
+const download = document.getElementById("download");
 
 function showErr(msg){
   errEl.innerText = msg;
@@ -120,7 +119,7 @@ document.querySelectorAll(".role").forEach(btn=>{
     document.querySelectorAll(".role").forEach(x=>x.classList.remove("active"));
     btn.classList.add("active");
     role = btn.dataset.role;
-    if (file && AUTO_REGEN_ON_ROLE_CHANGE) generate();
+    if (file) generate(); // временно пусть перегенерит
   };
 });
 
@@ -133,19 +132,19 @@ function readAsDataURL(f){
   });
 }
 
-// letterbox (contain) — не кропаем
-async function resizeFileToJpegB64(f){
+// letterbox (без кропа) -> JPEG base64
+async function resizeToJpegB64(f){
   const dataURL = await readAsDataURL(f);
 
   const img = await new Promise((res, rej) => {
     const i = new Image();
     i.onload = () => res(i);
-    i.onerror = () => rej(new Error("Не удалось открыть изображение. Если это HEIC/HEIF — конвертируйте в JPG/PNG."));
+    i.onerror = () => rej(new Error("Не удалось открыть изображение (возможен HEIC/HEIF). Конвертируйте в JPG/PNG."));
     i.src = dataURL;
   });
 
   const c = document.createElement("canvas");
-  c.width  = CANVAS_W;
+  c.width = CANVAS_W;
   c.height = CANVAS_H;
   const g = c.getContext("2d", { alpha:false });
 
@@ -164,7 +163,7 @@ async function resizeFileToJpegB64(f){
   return out.split(",")[1];
 }
 
-/** LOGO overlay **/
+// logo overlay
 let logoPromise = null;
 function loadLogo(){
   if (logoPromise) return logoPromise;
@@ -191,20 +190,19 @@ async function blobToImage(blob){
   }
 }
 
-async function addLogoToBlobPng(pngBlob){
+async function addLogoToPngBlob(pngBlob){
   const [img, logo] = await Promise.all([blobToImage(pngBlob), loadLogo()]);
 
   const c = document.createElement("canvas");
-  c.width  = img.naturalWidth || img.width;
+  c.width = img.naturalWidth || img.width;
   c.height = img.naturalHeight || img.height;
   const g = c.getContext("2d");
 
   g.fillStyle = "#ffffff";
   g.fillRect(0, 0, c.width, c.height);
-
   g.drawImage(img, 0, 0, c.width, c.height);
 
-  const targetW = Math.max(140, Math.min(240, Math.round(c.width * 0.16)));
+  const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
   const ratio = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
   const targetH = Math.round(targetW / ratio);
 
@@ -218,19 +216,11 @@ async function addLogoToBlobPng(pngBlob){
 }
 
 function extraPrompt(){
-  return [
-    "real documentary photo",
-    "natural colors",
-    "sharp focus",
-    "realistic skin texture",
-    "no cinematic effects",
-    "no film grain",
-    "no letterbox"
-  ].join(", ");
+  return "real documentary photo, natural colors, sharp focus, no cinematic effects";
 }
 
-input.onchange = e => {
-  const f = e.target.files[0];
+input.onchange = async (e) => {
+  const f = e.target.files && e.target.files[0];
   if (!f) return;
 
   if (!f.type || !f.type.startsWith("image/")) return showErr("Нужен файл изображения (JPG/PNG/WEBP/GIF).");
@@ -239,7 +229,7 @@ input.onchange = e => {
   file = f;
   picked.innerText = "Вы выбрали: " + f.name;
   hideErr();
-  generate();
+  await generate();
 };
 
 async function generate(){
@@ -249,15 +239,16 @@ async function generate(){
   download.removeAttribute("href");
   hideErr();
 
-  statusEl.innerText = "Шаг 1/3: подготовка фото…";
+  statusEl.innerText = "Шаг 1/2: подготовка фото…";
 
   try {
-    const imgB64 = await resizeFileToJpegB64(file);
+    const imgB64 = await resizeToJpegB64(file);
+    if (!imgB64 || imgB64.length < 50) return showErr("Ошибка: base64 изображения пустое.");
 
-    statusEl.innerText = "Шаг 2/3: генерация…";
+    statusEl.innerText = "Шаг 2/2: генерация…";
 
     const fd = new FormData();
-    fd.append("image_b64", imgB64);
+    fd.append("image_b64", String(imgB64));
     fd.append("width", String(CANVAS_W));
     fd.append("height", String(CANVAS_H));
     fd.append("num_steps", String(DEFAULT_STEPS));
@@ -265,32 +256,24 @@ async function generate(){
     fd.append("strength", String(DEFAULT_STRENGTH));
     fd.append("role", role);
     fd.append("prompt", extraPrompt());
-    
-    await fetch(API_BASE + "/api/inspect", { method: "POST", body: fd }); /ВРЕМЕННОЕ 
+
     const resp = await fetch(API_BASE + ENDPOINT, { method: "POST", body: fd });
-
-    const ct = (resp.headers.get("content-type") || "").toLowerCase();
-
     if (!resp.ok) {
       const txt = await resp.text();
-      showErr("AI ошибка:\n" + (txt || ("HTTP " + resp.status)));
-      return;
+      return showErr("AI ошибка:\n" + (txt || ("HTTP " + resp.status)));
     }
 
+    const ct = (resp.headers.get("content-type") || "").toLowerCase();
     if (!ct.startsWith("image/")) {
       const txt = await resp.text();
-      showErr("AI вернул не картинку.\ncontent-type: " + ct + "\n" + (txt || ""));
-      return;
+      return showErr("AI вернул не картинку.\ncontent-type: " + ct + "\n" + (txt || ""));
     }
 
     const blob = await resp.blob();
-    if (!blob || blob.size < 4000) {
-      showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Повтори или попробуй другое фото.");
-      return;
-    }
+    if (!blob || blob.size < 4000) return showErr("AI вернул слишком маленький файл ("+(blob?.size||0)+" bytes).");
 
-    statusEl.innerText = "Шаг 3/3: добавляю логотип…";
-    const finalPngUrl = await addLogoToBlobPng(blob);
+    statusEl.innerText = "Финал: добавляю логотип…";
+    const finalPngUrl = await addLogoToPngBlob(blob);
 
     resultImg.src = finalPngUrl;
     download.href = finalPngUrl;

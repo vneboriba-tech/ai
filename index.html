@@ -80,27 +80,20 @@
 </div>
 
 <script>
-/** ====== НАСТРОЙКИ ====== **/
-const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev"; // твой воркер
-const ENDPOINT  = "/api/safe-edit-raw"; // RAW PNG bytes
+const API_BASE  = "https://media-gen-worker2.vneboriba.workers.dev"; // <-- замени на свой воркер
+const ENDPOINT  = "/api/safe-edit-raw";
 
 const MAX_MB = 12;
 
-// ВАЖНО для режима 2: делаем “сохранить лицо”
-// -> letterbox (без кропа), вертикальный формат
 const CANVAS_W = 768;
 const CANVAS_H = 1024;
 
-// Быстрота vs качество
-const DEFAULT_STEPS    = 20;
-const DEFAULT_GUIDANCE = 6.0;
-// КЛЮЧЕВОЕ: чем ниже strength — тем сильнее держится исходник
+const DEFAULT_STEPS    = 18;
+const DEFAULT_GUIDANCE = 6.5;
 const DEFAULT_STRENGTH = 0.30;
 
-// авто-перегенерация при смене роли (оставила true как раньше)
 const AUTO_REGEN_ON_ROLE_CHANGE = true;
 
-/** ====== UI refs ====== **/
 let file = null;
 let role = "журналист";
 
@@ -140,7 +133,7 @@ function readAsDataURL(f){
   });
 }
 
-// ✅ letterbox (contain) — НЕ кропаем лицо
+// letterbox (contain) — не кропаем
 async function resizeFileToJpegB64(f){
   const dataURL = await readAsDataURL(f);
 
@@ -156,7 +149,6 @@ async function resizeFileToJpegB64(f){
   c.height = CANVAS_H;
   const g = c.getContext("2d", { alpha:false });
 
-  // белый фон
   g.fillStyle = "#ffffff";
   g.fillRect(0, 0, c.width, c.height);
 
@@ -168,12 +160,11 @@ async function resizeFileToJpegB64(f){
 
   g.drawImage(img, dx, dy, dw, dh);
 
-  // JPEG быстрее и легче для передачи
   const out = c.toDataURL("image/jpeg", 0.90);
   return out.split(",")[1];
 }
 
-/** ====== LOGO overlay ====== **/
+/** LOGO overlay **/
 let logoPromise = null;
 function loadLogo(){
   if (logoPromise) return logoPromise;
@@ -208,14 +199,12 @@ async function addLogoToBlobPng(pngBlob){
   c.height = img.naturalHeight || img.height;
   const g = c.getContext("2d");
 
-  // белый фон (на случай прозрачности)
   g.fillStyle = "#ffffff";
   g.fillRect(0, 0, c.width, c.height);
 
   g.drawImage(img, 0, 0, c.width, c.height);
 
-  // логотип внизу по центру
-  const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
+  const targetW = Math.max(140, Math.min(240, Math.round(c.width * 0.16)));
   const ratio = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
   const targetH = Math.round(targetW / ratio);
 
@@ -228,7 +217,6 @@ async function addLogoToBlobPng(pngBlob){
   return c.toDataURL("image/png");
 }
 
-// Доп. “стабилизатор”: просим меньше кино-эффектов и больше “документальной” картинки
 function extraPrompt(){
   return [
     "real documentary photo",
@@ -241,7 +229,6 @@ function extraPrompt(){
   ].join(", ");
 }
 
-/** ====== Upload ====== **/
 input.onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
@@ -266,12 +253,8 @@ async function generate(){
 
   try {
     const imgB64 = await resizeFileToJpegB64(file);
-    if (!imgB64 || imgB64.length < 50) {
-      showErr("Ошибка: base64 изображения пустое или слишком короткое");
-      return;
-    }
 
-    statusEl.innerText = "Шаг 2/3: генерация (img2img)…";
+    statusEl.innerText = "Шаг 2/3: генерация…";
 
     const fd = new FormData();
     fd.append("image_b64", imgB64);
@@ -283,10 +266,7 @@ async function generate(){
     fd.append("role", role);
     fd.append("prompt", extraPrompt());
 
-    const resp = await fetch(API_BASE + ENDPOINT, {
-      method: "POST",
-      body: fd,
-    });
+    const resp = await fetch(API_BASE + ENDPOINT, { method: "POST", body: fd });
 
     const ct = (resp.headers.get("content-type") || "").toLowerCase();
 
@@ -303,9 +283,8 @@ async function generate(){
     }
 
     const blob = await resp.blob();
-
     if (!blob || blob.size < 4000) {
-      showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Нажми ещё раз через 30–60 сек (модель могла прогружаться).");
+      showErr("AI вернул слишком маленький файл (" + (blob?.size || 0) + " bytes). Повтори или попробуй другое фото.");
       return;
     }
 

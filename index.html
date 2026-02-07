@@ -47,44 +47,42 @@
 </head>
 
 <body>
-<div class="container">
-  <header><h1>Почувствуй себя журналистом</h1></header>
+  <div class="container">
+    <header><h1>Почувствуй себя журналистом</h1></header>
 
-  <div class="uploader">
-    <img src="logo.png" class="logo" alt="">
-    <div class="headline">Загрузите фото</div>
-    <div class="sub">JPG, PNG, WEBP, GIF до 12 МБ</div>
-    <input id="fileInput" type="file" accept="image/*">
-    <div id="picked" class="picked"></div>
-  </div>
+    <div class="uploader">
+      <img src="logo.png" class="logo" alt="">
+      <div class="headline">Загрузите фото</div>
+      <div class="sub">JPG, PNG, WEBP, GIF до 12 МБ</div>
+      <input id="fileInput" type="file" accept="image/*">
+      <div id="picked" class="picked"></div>
+    </div>
 
-  <div class="roles">
-    <div class="roles-title">Выберите роль</div>
-    <div class="roles-grid">
-      <button class="role active" data-role="журналист">Журналист</button>
-      <button class="role" data-role="блогер">Блогер</button>
-      <button class="role" data-role="фотограф">Фотограф</button>
+    <div class="roles">
+      <div class="roles-title">Выберите роль</div>
+      <div class="roles-grid">
+        <button class="role active" data-role="журналист" type="button">Журналист</button>
+        <button class="role" data-role="блогер" type="button">Блогер</button>
+        <button class="role" data-role="фотограф" type="button">Фотограф</button>
+      </div>
+    </div>
+
+    <div id="status" class="status">Готово к работе</div>
+    <div id="error" class="err"></div>
+
+    <div id="resultBox" class="result">
+      <img id="resultImg" alt="Результат">
+      <div style="margin-top:12px;">
+        <a id="download" class="btn" download="result.png">Скачать PNG</a>
+      </div>
     </div>
   </div>
-
-  <div id="status" class="status">Готово к работе</div>
-  <div id="error" class="err"></div>
-
-  <div id="resultBox" class="result">
-    <img id="resultImg" alt="Результат">
-    <div style="margin-top:12px;">
-      <a id="download" class="btn" download="result.png">Скачать PNG</a>
-    </div>
-  </div>
-</div>
 
 <script>
 const API_BASE = "https://media-gen-worker2.vneboriba.workers.dev";
 const ENDPOINT = "/api/safe-edit-raw";
 
 const MAX_MB = 12;
-
-// важно: эти поля идут в воркер как числа-строки
 const CANVAS_W = 768;
 const CANVAS_H = 1024;
 
@@ -113,6 +111,7 @@ function hideErr(){
   errEl.innerText = "";
 }
 
+// роли
 document.querySelectorAll(".role").forEach(btn=>{
   btn.onclick = () => {
     document.querySelectorAll(".role").forEach(x=>x.classList.remove("active"));
@@ -151,7 +150,6 @@ async function blobToImage(blob){
 
 async function addLogoToPngBlob(pngBlob){
   const [img, logo] = await Promise.all([blobToImage(pngBlob), loadLogo()]);
-
   const c = document.createElement("canvas");
   c.width = img.naturalWidth || img.width;
   c.height = img.naturalHeight || img.height;
@@ -170,7 +168,6 @@ async function addLogoToPngBlob(pngBlob){
   const y = c.height - targetH - margin;
 
   g.drawImage(logo, x, y, targetW, targetH);
-
   return c.toDataURL("image/png");
 }
 
@@ -178,6 +175,7 @@ function extraPrompt(){
   return "real documentary photo, natural colors, sharp focus, no cinematic effects";
 }
 
+// upload
 input.onchange = async (e) => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
@@ -203,252 +201,6 @@ async function generate(){
   try {
     const fd = new FormData();
     fd.append("image_file", file, file.name);
-
-    fd.append("width", String(CANVAS_W));
-    fd.append("height", String(CANVAS_H));
-    fd.append("num_steps", String(DEFAULT_STEPS));
-    fd.append("guidance", String(DEFAULT_GUIDANCE));
-    fd.append("strength", String(DEFAULT_STRENGTH));
-    fd.append("role", role);
-    fd.append("prompt", extraPrompt());
-
-    const resp = await fetch(API_BASE + ENDPOINT, { method: "POST", body: fd });
-
-    if (!resp.ok) {
-      const txt = await resp.text();
-      return showErr("AI ошибка:\n" + (txt || ("HTTP " + resp.status)));
-    }
-
-    const ct = (resp.headers.get("content-type") || "").toLowerCase();
-    if (!ct.startsWith("image/")) {
-      const txt = await resp.text();
-      return showErr("AI вернул не картинку.\ncontent-type: " + ct + "\n" + (txt || ""));
-    }
-
-    const blob = await resp.blob();
-    if (!blob || blob.size < 4000) return showErr("AI вернул слишком маленький файл ("+(blob?.size||0)+" bytes).");
-
-    statusEl.innerText = "Добавляю логотип…";
-    const finalPngUrl = await addLogoToPngBlob(blob);
-
-    resultImg.src = finalPngUrl;
-    download.href = finalPngUrl;
-    resultBox.style.display = "block";
-    statusEl.innerText = "Готово!";
-  } catch (e) {
-    console.error(e);
-    showErr("Ошибка: " + (e.message || e));
-  }
-}
-</script>
-</body>
-</html>
-<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Почувствуй себя журналистом</title>
-
-  <style>
-    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; }
-    * { box-sizing:border-box; }
-    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
-      font-family:-apple-system,BlinkMacSystemFont,"Avenir Next",Segoe UI,Roboto,Helvetica,Arial; }
-    body { display:flex; flex-direction:column; align-items:center; min-height:100vh; }
-    header { text-align:center; margin-top:24px; margin-bottom:16px; }
-    h1 { font-size:clamp(28px,4vw,42px); margin:0; font-weight:800; }
-
-    .container { width:100%; max-width:960px; padding:20px; }
-
-    .uploader { position:relative; border:2px dashed var(--border);
-      border-radius:24px; padding:40px 20px; background:#f9fafb; text-align:center;
-      cursor:pointer; transition:.2s; }
-    .uploader:hover { border-color:var(--accent); background:#f0f9ff; }
-    .uploader img.logo { width:72px; height:72px; margin-bottom:12px; pointer-events:none; }
-    .uploader input[type=file]{ position:absolute; inset:0; opacity:0; cursor:pointer; }
-
-    .headline { font-weight:700; font-size:18px; pointer-events:none; }
-    .sub { color:var(--muted); font-size:14px; margin-top:6px; pointer-events:none; }
-    .picked { margin-top:10px; font-size:14px; }
-
-    .roles { margin-top:24px; }
-    .roles-title { text-align:center; font-weight:700; font-size:18px; }
-    .roles-grid { display:grid; grid-template-columns:repeat(3,1fr);
-      gap:12px; margin-top:12px; }
-    .role { border:1px solid var(--border); border-radius:14px; padding:12px;
-      font-weight:700; cursor:pointer; background:#fff; transition:.15s; }
-    .role.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.2); }
-
-    .status { margin-top:20px; text-align:center; font-size:15px; white-space:pre-wrap; }
-    .err { color:#dc2626; font-size:14px; text-align:center; margin-top:10px; display:none; white-space:pre-wrap; }
-
-    .result { margin-top:24px; text-align:center; display:none; }
-    .result img { width:100%; max-width:800px; border-radius:18px; border:1px solid var(--border); }
-
-    .btn { background:#10b981; color:#fff; padding:10px 16px; border-radius:12px; border:none; cursor:pointer; font-weight:700; text-decoration:none; display:inline-block; }
-    .btn:hover { background:#059669; }
-  </style>
-</head>
-
-<body>
-<div class="container">
-  <header><h1>Почувствуй себя журналистом</h1></header>
-
-  <div class="uploader">
-    <img src="logo.png" class="logo" alt="">
-    <div class="headline">Загрузите фото</div>
-    <div class="sub">JPG, PNG, WEBP, GIF до 12 МБ</div>
-    <input id="fileInput" type="file" accept="image/*">
-    <div id="picked" class="picked"></div>
-  </div>
-
-  <div class="roles">
-    <div class="roles-title">Выберите роль</div>
-    <div class="roles-grid">
-      <button class="role active" data-role="журналист">Журналист</button>
-      <button class="role" data-role="блогер">Блогер</button>
-      <button class="role" data-role="фотограф">Фотограф</button>
-    </div>
-  </div>
-
-  <div id="status" class="status">Готово к работе</div>
-  <div id="error" class="err"></div>
-
-  <div id="resultBox" class="result">
-    <img id="resultImg" alt="Результат">
-    <div style="margin-top:12px;">
-      <a id="download" class="btn" download="result.png">Скачать PNG</a>
-    </div>
-  </div>
-</div>
-
-<script>
-const API_BASE = "https://media-gen-worker2.vneboriba.workers.dev";
-const ENDPOINT = "/api/safe-edit-raw";
-
-const MAX_MB = 12;
-
-// важно: эти поля идут в воркер как числа-строки
-const CANVAS_W = 768;
-const CANVAS_H = 1024;
-
-const DEFAULT_STEPS = 18;
-const DEFAULT_GUIDANCE = 6.5;
-const DEFAULT_STRENGTH = 0.30;
-
-let file = null;
-let role = "журналист";
-
-const input = document.getElementById("fileInput");
-const picked = document.getElementById("picked");
-const statusEl = document.getElementById("status");
-const errEl = document.getElementById("error");
-const resultBox = document.getElementById("resultBox");
-const resultImg = document.getElementById("resultImg");
-const download = document.getElementById("download");
-
-function showErr(msg){
-  errEl.innerText = msg;
-  errEl.style.display = "block";
-  statusEl.innerText = "Ошибка";
-}
-function hideErr(){
-  errEl.style.display = "none";
-  errEl.innerText = "";
-}
-
-document.querySelectorAll(".role").forEach(btn=>{
-  btn.onclick = () => {
-    document.querySelectorAll(".role").forEach(x=>x.classList.remove("active"));
-    btn.classList.add("active");
-    role = btn.dataset.role;
-    if (file) generate();
-  };
-});
-
-// logo overlay
-let logoPromise = null;
-function loadLogo(){
-  if (logoPromise) return logoPromise;
-  logoPromise = new Promise((res, rej) => {
-    const img = new Image();
-    img.onload = () => res(img);
-    img.onerror = () => rej(new Error("logo.png не найден рядом с index.html"));
-    img.src = "logo.png";
-  });
-  return logoPromise;
-}
-
-async function blobToImage(blob){
-  const url = URL.createObjectURL(blob);
-  try {
-    return await new Promise((res, rej) => {
-      const img = new Image();
-      img.onload = () => res(img);
-      img.onerror = () => rej(new Error("Ответ AI не декодируется как изображение."));
-      img.src = url;
-    });
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-async function addLogoToPngBlob(pngBlob){
-  const [img, logo] = await Promise.all([blobToImage(pngBlob), loadLogo()]);
-
-  const c = document.createElement("canvas");
-  c.width = img.naturalWidth || img.width;
-  c.height = img.naturalHeight || img.height;
-  const g = c.getContext("2d");
-
-  g.fillStyle = "#ffffff";
-  g.fillRect(0, 0, c.width, c.height);
-  g.drawImage(img, 0, 0, c.width, c.height);
-
-  const targetW = Math.max(120, Math.min(220, Math.round(c.width * 0.14)));
-  const ratio = (logo.naturalWidth || logo.width) / (logo.naturalHeight || logo.height);
-  const targetH = Math.round(targetW / ratio);
-
-  const margin = Math.round(c.width * 0.03);
-  const x = Math.round((c.width - targetW) / 2);
-  const y = c.height - targetH - margin;
-
-  g.drawImage(logo, x, y, targetW, targetH);
-
-  return c.toDataURL("image/png");
-}
-
-function extraPrompt(){
-  return "real documentary photo, natural colors, sharp focus, no cinematic effects";
-}
-
-input.onchange = async (e) => {
-  const f = e.target.files && e.target.files[0];
-  if (!f) return;
-
-  if (!f.type || !f.type.startsWith("image/")) return showErr("Нужен файл изображения (JPG/PNG/WEBP/GIF).");
-  if (f.size > MAX_MB * 1024 * 1024) return showErr("Файл слишком большой (максимум 12 МБ).");
-
-  file = f;
-  picked.innerText = "Вы выбрали: " + f.name;
-  hideErr();
-  await generate();
-};
-
-async function generate(){
-  if (!file) return;
-
-  resultBox.style.display = "none";
-  download.removeAttribute("href");
-  hideErr();
-
-  statusEl.innerText = "Генерация…";
-
-  try {
-    const fd = new FormData();
-    fd.append("image_file", file, file.name);
-
     fd.append("width", String(CANVAS_W));
     fd.append("height", String(CANVAS_H));
     fd.append("num_steps", String(DEFAULT_STEPS));

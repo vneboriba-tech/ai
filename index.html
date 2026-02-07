@@ -248,7 +248,7 @@ async function generate(){
     statusEl.innerText = "Шаг 2/2: генерация…";
 
     const fd = new FormData();
-    fd.append("image_b64", String(imgB64));
+    fd.append("image_file", file, file.name);
     fd.append("width", String(CANVAS_W));
     fd.append("height", String(CANVAS_H));
     fd.append("num_steps", String(DEFAULT_STEPS));

@@ -247,15 +247,19 @@ async function generate(){
 
     statusEl.innerText = "Шаг 2/2: генерация…";
 
-    const fd = new FormData();
-    fd.append("image_file", file, file.name);
-    fd.append("width", String(CANVAS_W));
-    fd.append("height", String(CANVAS_H));
-    fd.append("num_steps", String(DEFAULT_STEPS));
-    fd.append("guidance", String(DEFAULT_GUIDANCE));
-    fd.append("strength", String(DEFAULT_STRENGTH));
-    fd.append("role", role);
-    fd.append("prompt", extraPrompt());
+const fd = new FormData();
+
+// ✅ вот это главное:
+fd.append("image_file", file, file.name);
+
+// остальное оставляем
+fd.append("width", String(CANVAS_W));
+fd.append("height", String(CANVAS_H));
+fd.append("num_steps", String(DEFAULT_STEPS));
+fd.append("guidance", String(DEFAULT_GUIDANCE));
+fd.append("strength", String(DEFAULT_STRENGTH));
+fd.append("role", role);
+fd.append("prompt", extraPrompt());
 
     const resp = await fetch(API_BASE + ENDPOINT, { method: "POST", body: fd });
     if (!resp.ok) {

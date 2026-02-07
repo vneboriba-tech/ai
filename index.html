@@ -265,7 +265,8 @@ async function generate(){
     fd.append("strength", String(DEFAULT_STRENGTH));
     fd.append("role", role);
     fd.append("prompt", extraPrompt());
-
+    
+    await fetch(API_BASE + "/api/inspect", { method: "POST", body: fd }); /ВРЕМЕННОЕ 
     const resp = await fetch(API_BASE + ENDPOINT, { method: "POST", body: fd });
 
     const ct = (resp.headers.get("content-type") || "").toLowerCase();
